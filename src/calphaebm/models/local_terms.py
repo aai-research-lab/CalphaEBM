@@ -16,15 +16,8 @@ from calphaebm.models.mlp import MLP
 def _cat(*xs: torch.Tensor) -> torch.Tensor:
     return torch.cat(xs, dim=-1)
 
-
 class LocalEnergy(nn.Module):
-    def __init__(
-        self,
-        num_aa: int = 20,
-        emb_dim: int = 16,
-        hidden=(128, 128),
-        use_cos_theta: bool = True,
-    ):
+    def __init__(self, num_aa: int = 20, emb_dim: int = 16, hidden=(128, 128), use_cos_theta: bool = True):
         super().__init__()
         self.emb = AAEmbedding(num_aa=num_aa, dim=emb_dim)
         self.use_cos_theta = use_cos_theta
@@ -54,9 +47,31 @@ class LocalEnergy(nn.Module):
         # Torsions φ_i (i=1..L-3)
         phi = torsions(R)  # [B,L-3]
         sc = phi_sincos(phi)  # [B,L-3,2]
-        e_phi = _cat(
-            e[:, :-3, :], e[:, 1:-2, :], e[:, 2:-1, :], e[:, 3:, :]
-        )  # [B,L-3,4d]
+        e_phi = _cat(e[:, :-3, :], e[:, 1:-2, :], e[:, 2:-1, :], e[:, 3:, :])  # [B,L-3,4d]
+        x_phi = _cat(sc, e_phi)
+        E_phi = self.f_phi(x_phi).squeeze(-1).sum(dim=1)
+
+        return E_l + E_theta + E_phi
+
+    def energy_from_internals(self, l: torch.Tensor, theta: torch.Tensor, phi: torch.Tensor, seq: torch.Tensor) -> torch.Tensor:
+        """Compute energy from internal coordinates."""
+        B, L = seq.shape
+        e = self.emb(seq)
+
+        # Bond lengths
+        e_l = _cat(e[:, :-1, :], e[:, 1:, :])
+        x_l = _cat(l.unsqueeze(-1), e_l)
+        E_l = self.f_l(x_l).squeeze(-1).sum(dim=1)
+
+        # Bond angles
+        theta_in = torch.cos(theta) if self.use_cos_theta else theta
+        e_theta = _cat(e[:, :-2, :], e[:, 1:-1, :], e[:, 2:, :])
+        x_theta = _cat(theta_in.unsqueeze(-1), e_theta)
+        E_theta = self.f_theta(x_theta).squeeze(-1).sum(dim=1)
+
+        # Torsions
+        sc = phi_sincos(phi)
+        e_phi = _cat(e[:, :-3, :], e[:, 1:-2, :], e[:, 2:-1, :], e[:, 3:, :])
         x_phi = _cat(sc, e_phi)
         E_phi = self.f_phi(x_phi).squeeze(-1).sum(dim=1)
 

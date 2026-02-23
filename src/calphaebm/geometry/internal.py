@@ -1,19 +1,20 @@
-# src/calphaebm/geometry/internal.py
-
 """Differentiable internal coordinates from Cartesian Cα coordinates.
 
 R is expected to be [B, L, 3] or [L, 3].
 Outputs are batched if input is batched.
 """
 
+import numpy as np
 import torch
 
 from calphaebm.geometry.dihedral import dihedral
 from calphaebm.utils.math import safe_norm
 
 
-def _ensure_batch(R: torch.Tensor) -> torch.Tensor:
+def _ensure_batch(R):
     """Convert 2D input to batched format."""
+    if isinstance(R, np.ndarray):
+        R = torch.from_numpy(R).float()
     if R.dim() == 2:
         return R.unsqueeze(0)
     return R
@@ -46,7 +47,7 @@ def bond_angles(R: torch.Tensor) -> torch.Tensor:
 
     # Vectors from central atom to neighbors
     u = Rb[:, :-2, :] - Rb[:, 1:-1, :]  # r_{i-1} - r_i
-    v = Rb[:, 2:, :] - Rb[:, 1:-1, :]  # r_{i+1} - r_i
+    v = Rb[:, 2:, :] - Rb[:, 1:-1, :]   # r_{i+1} - r_i
 
     # Compute cosine of angle
     u_norm = safe_norm(u, dim=-1)
@@ -96,21 +97,23 @@ def all_internal(R: torch.Tensor) -> dict:
     }
 
 
-def check_geometry(R: torch.Tensor, max_jump: float = 4.5) -> dict:
+def check_geometry(R, max_jump: float = 4.5) -> dict:
     """Check geometric sanity of a structure.
 
     Args:
-        R: (L, 3) coordinates.
+        R: (L, 3) coordinates (numpy or torch tensor).
         max_jump: Maximum allowed Cα-Cα distance.
 
     Returns:
         Dictionary with validation results.
     """
+    if isinstance(R, np.ndarray):
+        R = torch.from_numpy(R).float()
     R = _ensure_batch(R)[0]
     L = R.shape[0]
 
     # Check bond lengths
-    length_idx = bond_lengths(R)
+    l = bond_lengths(R)
     l_min = l.min().item()
     l_max = l.max().item()
     l_mean = l.mean().item()
@@ -125,11 +128,10 @@ def check_geometry(R: torch.Tensor, max_jump: float = 4.5) -> dict:
 
     # Check for steric clashes (very rough)
     from calphaebm.utils.neighbors import pairwise_distances
-
     D = pairwise_distances(R.unsqueeze(0))[0]
     # Exclude bonded pairs
     for i in range(L):
-        D[i, max(0, i - 2) : min(L, i + 3)] = float("inf")
+        D[i, max(0, i-2):min(L, i+3)] = float("inf")
     min_nonbonded = D.min().item()
 
     return {

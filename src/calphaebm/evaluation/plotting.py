@@ -1,7 +1,7 @@
 """Plotting functions for evaluation results."""
 
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Dict, Optional
 
 import matplotlib.pyplot as plt
 import numpy as np

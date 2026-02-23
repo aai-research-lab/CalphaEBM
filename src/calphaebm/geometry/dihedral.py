@@ -1,10 +1,4 @@
-# src/calphaebm/geometry/dihedral.py
-
-"""Stable dihedral (torsion) angle implementation.
-
-Returns dihedral in (-pi, pi]. Designed to be differentiable.
-Reference: Common MD implementations using atan2 with plane normals.
-"""
+"""Stable dihedral (torsion) angle implementation."""
 
 import torch
 
@@ -17,46 +11,45 @@ def dihedral(
     p2: torch.Tensor,
     p3: torch.Tensor,
 ) -> torch.Tensor:
-    """Compute dihedral angle for points p0-p1-p2-p3.
+    """Compute dihedral angle for points p0-p1-p2-p3."""
+    # Ensure all inputs are float32
+    p0 = p0.float()
+    p1 = p1.float()
+    p2 = p2.float()
+    p3 = p3.float()
 
-    The dihedral angle is the angle between the planes (p0,p1,p2) and (p1,p2,p3).
-
-    Args:
-        p0, p1, p2, p3: Points with shape (..., 3).
-
-    Returns:
-        Dihedral angles in radians, shape (...,), range [-pi, pi].
-    """
     # Vectors along bonds
-    b0 = p1 - p0  # (p0->p1)
-    b1 = p2 - p1  # (p1->p2)
-    b2 = p3 - p2  # (p2->p3)
+    b0 = p1 - p0
+    b1 = p2 - p1
+    b2 = p3 - p2
 
-    # Normalize b1 for projection
-    b1_norm = safe_norm(b1, dim=-1, keepdim=True)
-    b1_unit = b1 / (b1_norm + 1e-12)
+    # Standard MD formula
+    u = torch.cross(b0, b1, dim=-1)
+    v = torch.cross(b1, b2, dim=-1)
+    w = torch.cross(u, b1, dim=-1)
 
-    # Components perpendicular to b1
-    v = b0 - (torch.sum(b0 * b1_unit, dim=-1, keepdim=True) * b1_unit)
-    w = b2 - (torch.sum(b2 * b1_unit, dim=-1, keepdim=True) * b1_unit)
+    # Normalize for stability
+    u_norm = safe_norm(u, dim=-1, keepdim=True)
+    v_norm = safe_norm(v, dim=-1, keepdim=True)
+    w_norm = safe_norm(w, dim=-1, keepdim=True)
 
-    # Compute angle using atan2 for numerical stability
-    x = torch.sum(v * w, dim=-1)  # cos component
-    y = torch.sum(torch.cross(b1_unit, v, dim=-1) * w, dim=-1)  # sin component
+    u = torch.where(u_norm > 1e-8, u / u_norm, torch.zeros_like(u))
+    v = torch.where(v_norm > 1e-8, v / v_norm, torch.zeros_like(v))
+    w = torch.where(w_norm > 1e-8, w / w_norm, torch.zeros_like(w))
+
+    x = torch.sum(u * v, dim=-1)
+    y = torch.sum(w * v, dim=-1)
+
+    x = torch.clamp(x, -1.0, 1.0)
+    y = torch.clamp(y, -1.0, 1.0)
 
     phi = torch.atan2(y, x)
     return wrap_to_pi(phi)
 
 
 def dihedral_from_points(points: torch.Tensor) -> torch.Tensor:
-    """Compute dihedral angles for all quadruplets in a chain.
-
-    Args:
-        points: (..., L, 3) coordinates.
-
-    Returns:
-        (..., L-3) dihedral angles.
-    """
+    """Compute dihedral angles for all quadruplets in a chain."""
+    points = points.float()
     p0 = points[..., :-3, :]
     p1 = points[..., 1:-2, :]
     p2 = points[..., 2:-1, :]

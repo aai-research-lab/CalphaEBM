@@ -1,5 +1,3 @@
-# src/calphaebm/utils/math.py
-
 """Mathematical utilities with safe numerical operations."""
 
 from typing import Tuple, Union
@@ -27,19 +25,18 @@ def safe_norm(
     """
     return torch.sqrt(torch.sum(x * x, dim=dim, keepdim=keepdim) + eps)
 
-
 def wrap_to_pi(phi: torch.Tensor) -> torch.Tensor:
-    """Wrap angle to [-pi, pi) range.
+    """Wrap angle to [-pi, pi] range using atan2(sin, cos).
+
+    This is the most numerically stable method.
 
     Args:
         phi: Angle in radians.
 
     Returns:
-        Angle wrapped to [-pi, pi).
+        Angle wrapped to [-pi, pi].
     """
-    pi = torch.pi
-    return (phi + pi) % (2 * pi) - pi
-
+    return torch.atan2(torch.sin(phi), torch.cos(phi))
 
 def wrap_to_2pi(phi: torch.Tensor) -> torch.Tensor:
     """Wrap angle to [0, 2pi) range.
@@ -95,9 +92,7 @@ def rmsd(P: np.ndarray, Q: np.ndarray) -> float:
     return float(np.sqrt(np.mean(np.sum(diff * diff, axis=1))))
 
 
-def center_of_mass(
-    R: Union[np.ndarray, torch.Tensor],
-) -> Union[np.ndarray, torch.Tensor]:
+def center_of_mass(R: Union[np.ndarray, torch.Tensor]) -> Union[np.ndarray, torch.Tensor]:
     """Compute center of mass (equal weights).
 
     Args:

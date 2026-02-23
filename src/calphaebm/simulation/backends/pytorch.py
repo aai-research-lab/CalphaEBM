@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import List, Optional
 
 import torch
 
 from calphaebm.simulation.base import SimulationResult, Simulator
-from calphaebm.simulation.observers import Observer
 from calphaebm.utils.logging import get_logger
 from calphaebm.utils.math import safe_norm
 

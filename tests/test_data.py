@@ -1,13 +1,13 @@
-import torch
-
-# tests/test_data.py
-
 """Tests for data module."""
 
+import tempfile
+from pathlib import Path
 
 import numpy as np
+import pytest
+import torch
 
-from calphaebm.data.aa_map import AA1_TO_IDX, aa3_to_idx
+from calphaebm.data.aa_map import AA1_TO_IDX, AA3_TO_AA1, aa3_to_idx
 from calphaebm.data.synthetic import make_extended_chain, random_sequence
 
 
@@ -15,11 +15,17 @@ class TestAAMap:
     """Test amino acid mapping."""
 
     def test_aa3_to_idx_standard(self):
-        """Test conversion of standard amino acids."""
-        # Ala should map to 0
-        assert aa3_to_idx("ALA") == 0
-        # Gly should map to 6 (G is 6th in AC...)
-        assert aa3_to_idx("GLY") == 6
+        """Test conversion of standard amino acids with correct indices."""
+        # Test all standard amino acids with correct 0-based indices
+        test_cases = [
+            ("ALA", 0), ("CYS", 1), ("ASP", 2), ("GLU", 3), ("PHE", 4),
+            ("GLY", 5), ("HIS", 6), ("ILE", 7), ("LYS", 8), ("LEU", 9),
+            ("MET", 10), ("ASN", 11), ("PRO", 12), ("GLN", 13), ("ARG", 14),
+            ("SER", 15), ("THR", 16), ("VAL", 17), ("TRP", 18), ("TYR", 19)
+        ]
+
+        for aa3, expected_idx in test_cases:
+            assert aa3_to_idx(aa3) == expected_idx, f"{aa3} should map to {expected_idx}"
 
     def test_aa3_to_idx_case_insensitive(self):
         """Test case insensitivity."""
@@ -31,8 +37,8 @@ class TestAAMap:
 
     def test_aa3_to_idx_alternates(self):
         """Test alternate codes."""
-        # MSE (selenomethionine) should map to M
-        assert aa3_to_idx("MSE") == AA1_TO_IDX["M"]
+        # MSE (selenomethionine) should map to M (index 10)
+        assert aa3_to_idx("MSE") == 10
 
 
 class TestSynthetic:
@@ -48,7 +54,7 @@ class TestSynthetic:
         R = make_extended_chain(batch=1, length=5, bond=3.8, noise=0.0)
         # Should be along x-axis
         diffs = R[0, 1:] - R[0, :-1]
-        lengths = np.sqrt((diffs**2).sum(axis=1))
+        lengths = np.sqrt((diffs ** 2).sum(axis=1))
         assert np.allclose(lengths, 3.8)
 
     def test_random_sequence(self):

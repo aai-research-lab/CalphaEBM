@@ -5,23 +5,14 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import List, Optional
 
 import numpy as np
 
-from calphaebm.evaluation.io.loaders import (
-    load_coords_from_pt,
-    load_coords_from_xyz,
-    load_trajectory_from_dir,
-)
+from calphaebm.evaluation.io.loaders import load_coords_from_pt, load_coords_from_xyz, load_trajectory_from_dir
 from calphaebm.evaluation.io.writers import save_metrics_json, save_metrics_txt
 from calphaebm.evaluation.metrics.clash import batch_min_distances, clash_probability
-from calphaebm.evaluation.metrics.contacts import (
-    contact_count,
-    native_contact_set,
-    q_hard,
-    q_smooth,
-)
+from calphaebm.evaluation.metrics.contacts import contact_count, native_contact_set, q_hard, q_smooth
 from calphaebm.evaluation.metrics.rdf import batch_rdf
 from calphaebm.evaluation.metrics.rg import batch_rg, radius_of_gyration
 from calphaebm.evaluation.metrics.rmsd import batch_rmsd

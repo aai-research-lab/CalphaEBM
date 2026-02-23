@@ -2,7 +2,6 @@
 
 import argparse
 import os
-import sys
 from typing import List, Set
 
 import torch
@@ -14,12 +13,9 @@ from calphaebm.models.cross_terms import SecondaryStructureEnergy
 from calphaebm.models.energy import TotalEnergy
 from calphaebm.models.local_terms import LocalEnergy
 from calphaebm.models.packing import PackingEnergy
-from calphaebm.models.repulsion import (
-    RepulsionEnergyFixed,
-    RepulsionEnergyLearnedRadius,
-)
+from calphaebm.models.repulsion import RepulsionEnergyFixed, RepulsionEnergyLearnedRadius
 from calphaebm.simulation.backends.pytorch import PyTorchSimulator
-from calphaebm.training.freeze import freeze_module, unfreeze_module
+from calphaebm.training.freeze import freeze_module
 from calphaebm.training.losses.contrastive import contrastive_logistic_loss
 from calphaebm.training.losses.dsm import dsm_cartesian_loss
 from calphaebm.utils.constants import DSM_SIGMA, EMB_DIM, LEARNING_RATE, NUM_AA

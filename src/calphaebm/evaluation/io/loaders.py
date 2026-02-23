@@ -3,7 +3,7 @@
 import glob
 import os
 import re
-from typing import List, Optional
+from typing import List
 
 import numpy as np
 import torch

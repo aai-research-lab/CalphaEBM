@@ -1,9 +1,8 @@
-# src/calphaebm/utils/neighbors.py
-
 """Neighbor list utilities for efficient nonbonded calculations."""
 
-from typing import Tuple
+from typing import Optional, Tuple
 
+import numpy as np
 import torch
 
 
@@ -43,7 +42,7 @@ def topk_nonbonded_pairs(
     idx = torch.arange(L, device=R.device)
     ii = idx.view(1, L, 1)
     jj = idx.view(1, 1, L)
-    mask = torch.abs(ii - jj) <= exclude
+    mask = (torch.abs(ii - jj) <= exclude)
 
     # Mask out excluded pairs
     D_masked = D.masked_fill(mask, float("inf"))
@@ -99,8 +98,10 @@ class NeighborList:
             if drift > self.skin:
                 needs_update = True
 
-        if needs_update:
-            self.pairs = topk_nonbonded_pairs(R, K=self.max_neighbors, exclude=exclude)
+        if needs_update or self.pairs is None:
+            self.pairs = topk_nonbonded_pairs(
+                R, K=self.max_neighbors, exclude=exclude
+            )
             self.last_positions = R.clone()
 
         return self.pairs

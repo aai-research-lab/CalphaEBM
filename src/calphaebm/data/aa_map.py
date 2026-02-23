@@ -1,31 +1,13 @@
-# src/calphaebm/data/aa_map.py
-
 """Amino acid mapping utilities."""
 
 from typing import Dict, Optional
 
 # 3-letter to 1-letter mapping
 AA3_TO_AA1: Dict[str, str] = {
-    "ALA": "A",
-    "CYS": "C",
-    "ASP": "D",
-    "GLU": "E",
-    "PHE": "F",
-    "GLY": "G",
-    "HIS": "H",
-    "ILE": "I",
-    "LYS": "K",
-    "LEU": "L",
-    "MET": "M",
-    "ASN": "N",
-    "PRO": "P",
-    "GLN": "Q",
-    "ARG": "R",
-    "SER": "S",
-    "THR": "T",
-    "VAL": "V",
-    "TRP": "W",
-    "TYR": "Y",
+    "ALA": "A", "CYS": "C", "ASP": "D", "GLU": "E", "PHE": "F",
+    "GLY": "G", "HIS": "H", "ILE": "I", "LYS": "K", "LEU": "L",
+    "MET": "M", "ASN": "N", "PRO": "P", "GLN": "Q", "ARG": "R",
+    "SER": "S", "THR": "T", "VAL": "V", "TRP": "W", "TYR": "Y",
     # Common alternates
     "MSE": "M",  # selenomethionine -> methionine
     "SEC": "C",  # selenocysteine -> cysteine (approx)
@@ -35,36 +17,21 @@ AA3_TO_AA1: Dict[str, str] = {
     "HIE": "H",  # histidine (epsilon protonated)
 }
 
-# 1-letter to index (0-19)
+# 1-letter to index (0-19) - Fixed order
 AA1_TO_IDX: Dict[str, int] = {
-    aa: i for i, aa in enumerate(list("ACDEFGHIKLMNPQRSTVWY"))
+    "A": 0, "C": 1, "D": 2, "E": 3, "F": 4, "G": 5, "H": 6, "I": 7, "K": 8, "L": 9,
+    "M": 10, "N": 11, "P": 12, "Q": 13, "R": 14, "S": 15, "T": 16, "V": 17, "W": 18, "Y": 19
 }
 
 # Reverse mapping: index to 1-letter
-IDX_TO_AA1: Dict[int, str] = {i: aa for aa, i in AA1_TO_IDX.items()}
+IDX_TO_AA1: Dict[int, str] = {
+    i: aa for aa, i in AA1_TO_IDX.items()
+}
 
 # Standard 3-letter order (for reference)
 STANDARD_AA3: list = [
-    "ALA",
-    "CYS",
-    "ASP",
-    "GLU",
-    "PHE",
-    "GLY",
-    "HIS",
-    "ILE",
-    "LYS",
-    "LEU",
-    "MET",
-    "ASN",
-    "PRO",
-    "GLN",
-    "ARG",
-    "SER",
-    "THR",
-    "VAL",
-    "TRP",
-    "TYR",
+    "ALA", "CYS", "ASP", "GLU", "PHE", "GLY", "HIS", "ILE", "LYS", "LEU",
+    "MET", "ASN", "PRO", "GLN", "ARG", "SER", "THR", "VAL", "TRP", "TYR",
 ]
 
 
