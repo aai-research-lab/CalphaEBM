@@ -2,14 +2,30 @@
 
 """Amino acid mapping utilities."""
 
-from typing import Optional, Dict
+from typing import Dict, Optional
 
 # 3-letter to 1-letter mapping
 AA3_TO_AA1: Dict[str, str] = {
-    "ALA": "A", "CYS": "C", "ASP": "D", "GLU": "E", "PHE": "F",
-    "GLY": "G", "HIS": "H", "ILE": "I", "LYS": "K", "LEU": "L",
-    "MET": "M", "ASN": "N", "PRO": "P", "GLN": "Q", "ARG": "R",
-    "SER": "S", "THR": "T", "VAL": "V", "TRP": "W", "TYR": "Y",
+    "ALA": "A",
+    "CYS": "C",
+    "ASP": "D",
+    "GLU": "E",
+    "PHE": "F",
+    "GLY": "G",
+    "HIS": "H",
+    "ILE": "I",
+    "LYS": "K",
+    "LEU": "L",
+    "MET": "M",
+    "ASN": "N",
+    "PRO": "P",
+    "GLN": "Q",
+    "ARG": "R",
+    "SER": "S",
+    "THR": "T",
+    "VAL": "V",
+    "TRP": "W",
+    "TYR": "Y",
     # Common alternates
     "MSE": "M",  # selenomethionine -> methionine
     "SEC": "C",  # selenocysteine -> cysteine (approx)
@@ -25,34 +41,50 @@ AA1_TO_IDX: Dict[str, int] = {
 }
 
 # Reverse mapping: index to 1-letter
-IDX_TO_AA1: Dict[int, str] = {
-    i: aa for aa, i in AA1_TO_IDX.items()
-}
+IDX_TO_AA1: Dict[int, str] = {i: aa for aa, i in AA1_TO_IDX.items()}
 
 # Standard 3-letter order (for reference)
 STANDARD_AA3: list = [
-    "ALA", "CYS", "ASP", "GLU", "PHE", "GLY", "HIS", "ILE", "LYS", "LEU",
-    "MET", "ASN", "PRO", "GLN", "ARG", "SER", "THR", "VAL", "TRP", "TYR",
+    "ALA",
+    "CYS",
+    "ASP",
+    "GLU",
+    "PHE",
+    "GLY",
+    "HIS",
+    "ILE",
+    "LYS",
+    "LEU",
+    "MET",
+    "ASN",
+    "PRO",
+    "GLN",
+    "ARG",
+    "SER",
+    "THR",
+    "VAL",
+    "TRP",
+    "TYR",
 ]
 
 
 def aa3_to_idx(resname3: str) -> Optional[int]:
     """Convert 3-letter amino acid code to index (0-19).
-    
+
     Args:
         resname3: 3-letter code (case insensitive).
-        
+
     Returns:
         Integer index 0-19, or None if not recognized.
     """
     if not resname3:
         return None
-    
+
     resname3 = resname3.strip().upper()
     aa1 = AA3_TO_AA1.get(resname3)
     if aa1 is None:
         return None
-    
+
     return AA1_TO_IDX.get(aa1)
 
 

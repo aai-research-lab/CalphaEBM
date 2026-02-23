@@ -7,12 +7,12 @@ import numpy as np
 
 def radius_of_gyration(R: np.ndarray) -> float:
     """Compute radius of gyration.
-    
+
     Rg = sqrt(mean(||r_i - r_com||²))
-    
+
     Args:
         R: (N, 3) coordinates.
-        
+
     Returns:
         Radius of gyration in same units as input.
     """
@@ -24,10 +24,10 @@ def batch_rg(trajectory: np.ndarray) -> np.ndarray:
     """Compute Rg for each frame in trajectory."""
     n_frames = trajectory.shape[0]
     rgs = np.zeros(n_frames)
-    
+
     for i in range(n_frames):
         rgs[i] = radius_of_gyration(trajectory[i])
-    
+
     return rgs
 
 

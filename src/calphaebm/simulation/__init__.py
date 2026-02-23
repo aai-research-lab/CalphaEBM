@@ -2,16 +2,16 @@
 
 """Simulation module for Langevin dynamics with multiple backends."""
 
-from calphaebm.simulation.base import Simulator, SimulationResult
 from calphaebm.simulation.backends.pytorch import PyTorchSimulator
+from calphaebm.simulation.base import SimulationResult, Simulator
+from calphaebm.simulation.factory import create_simulator
 from calphaebm.simulation.observers import (
-    Observer,
+    ClippingObserver,
     EnergyObserver,
     MinDistanceObserver,
-    ClippingObserver,
+    Observer,
     TrajectoryObserver,
 )
-from calphaebm.simulation.factory import create_simulator
 
 __all__ = [
     "Simulator",

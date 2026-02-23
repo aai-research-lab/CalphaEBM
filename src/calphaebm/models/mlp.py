@@ -2,8 +2,9 @@
 
 """Simple MLP builder for energy terms."""
 
+from typing import Tuple
+
 import torch.nn as nn
-from typing import Tuple, Optional
 
 
 def MLP(
@@ -14,14 +15,14 @@ def MLP(
     activation: str = "gelu",
 ) -> nn.Module:
     """Create a multilayer perceptron.
-    
+
     Args:
         in_dim: Input dimension.
         hidden_dims: Hidden layer dimensions.
         out_dim: Output dimension.
         dropout: Dropout probability (0 = no dropout).
         activation: Activation function ('relu', 'gelu', 'silu', 'tanh').
-        
+
     Returns:
         nn.Sequential MLP.
     """
@@ -32,7 +33,7 @@ def MLP(
         "tanh": nn.Tanh,
     }
     Act = acts.get(activation.lower(), nn.GELU)
-    
+
     layers = []
     d = in_dim
     for h in hidden_dims:
@@ -42,5 +43,5 @@ def MLP(
             layers.append(nn.Dropout(dropout))
         d = h
     layers.append(nn.Linear(d, out_dim))
-    
+
     return nn.Sequential(*layers)

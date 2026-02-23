@@ -2,13 +2,13 @@
 
 """Pytest fixtures for testing."""
 
+import numpy as np
 import pytest
 import torch
-import numpy as np
 
-from calphaebm.models.local_terms import LocalEnergy
 from calphaebm.models.energy import TotalEnergy
-from calphaebm.utils.constants import NUM_AA, EMB_DIM
+from calphaebm.models.local_terms import LocalEnergy
+from calphaebm.utils.constants import EMB_DIM, NUM_AA
 
 
 @pytest.fixture
@@ -58,9 +58,9 @@ def simple_protein():
     """Simple protein-like coordinates (ideal helix)."""
     # Create a simple helix
     n = 10
-    t = np.linspace(0, 4*np.pi, n)
+    t = np.linspace(0, 4 * np.pi, n)
     coords = np.zeros((n, 3))
     coords[:, 0] = 2.3 * np.cos(t)  # x
     coords[:, 1] = 2.3 * np.sin(t)  # y
-    coords[:, 2] = 1.5 * t / (2*np.pi)  # z
+    coords[:, 2] = 1.5 * t / (2 * np.pi)  # z
     return coords.astype(np.float32)

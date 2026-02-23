@@ -2,10 +2,10 @@
 
 """Save evaluation results to various formats."""
 
-import json
 import csv
+import json
 from pathlib import Path
-from typing import Dict, Any, Union, List
+from typing import Any, Dict, List, Union
 
 
 def save_metrics_json(
@@ -15,7 +15,7 @@ def save_metrics_json(
 ) -> None:
     """Save metrics to JSON file."""
     path = Path(path)
-    
+
     # Convert numpy types to Python native
     clean = {}
     for k, v in metrics.items():
@@ -25,7 +25,7 @@ def save_metrics_json(
             clean[k] = [x.item() for x in v]
         else:
             clean[k] = v
-    
+
     with open(path, "w") as f:
         json.dump(clean, f, indent=indent)
 
@@ -36,13 +36,13 @@ def save_metrics_txt(
 ) -> None:
     """Save metrics as human-readable text."""
     path = Path(path)
-    
+
     lines = []
     lines.append("=" * 60)
     lines.append("CalphaEBM Evaluation Results")
     lines.append("=" * 60)
     lines.append("")
-    
+
     for k, v in metrics.items():
         if isinstance(v, float):
             lines.append(f"{k:30s}: {v:.6f}")
@@ -58,7 +58,7 @@ def save_metrics_txt(
                 lines.append(f"{k:30s}: {v}")
         else:
             lines.append(f"{k:30s}: {v}")
-    
+
     with open(path, "w") as f:
         f.write("\n".join(lines))
 
@@ -69,24 +69,24 @@ def save_metrics_csv(
 ) -> None:
     """Save time-series metrics to CSV."""
     path = Path(path)
-    
+
     # Find all keys with lists of same length
     list_metrics = {k: v for k, v in metrics.items() if isinstance(v, (list, tuple))}
-    
+
     if not list_metrics:
         raise ValueError("No list metrics to save")
-    
+
     # Check lengths match
     lengths = {len(v) for v in list_metrics.values()}
     if len(lengths) > 1:
         raise ValueError(f"Inconsistent lengths: {lengths}")
-    
+
     n = lengths.pop()
-    
+
     with open(path, "w", newline="") as f:
         writer = csv.writer(f)
         writer.writerow(list_metrics.keys())
-        
+
         for i in range(n):
             row = [list_metrics[k][i] for k in list_metrics.keys()]
             writer.writerow(row)

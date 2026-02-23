@@ -9,9 +9,9 @@ Provides differentiable functions to compute:
 - Sin/cos features for periodic variables
 """
 
-from calphaebm.geometry.internal import bond_lengths, bond_angles, torsions
 from calphaebm.geometry.dihedral import dihedral
 from calphaebm.geometry.features import phi_sincos
+from calphaebm.geometry.internal import bond_angles, bond_lengths, torsions
 
 __all__ = [
     "bond_lengths",

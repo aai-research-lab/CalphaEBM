@@ -2,9 +2,10 @@
 
 """Mathematical utilities with safe numerical operations."""
 
-import torch
+from typing import Tuple, Union
+
 import numpy as np
-from typing import Union, Tuple
+import torch
 
 
 def safe_norm(
@@ -14,13 +15,13 @@ def safe_norm(
     eps: float = 1e-12,
 ) -> torch.Tensor:
     """Compute norm with numerical safety (avoid zero gradient).
-    
+
     Args:
         x: Input tensor.
         dim: Dimension along which to compute norm.
         keepdim: Keep reduced dimension.
         eps: Small value to avoid sqrt(0).
-        
+
     Returns:
         Norm of x along specified dimension.
     """
@@ -29,10 +30,10 @@ def safe_norm(
 
 def wrap_to_pi(phi: torch.Tensor) -> torch.Tensor:
     """Wrap angle to [-pi, pi) range.
-    
+
     Args:
         phi: Angle in radians.
-        
+
     Returns:
         Angle wrapped to [-pi, pi).
     """
@@ -42,10 +43,10 @@ def wrap_to_pi(phi: torch.Tensor) -> torch.Tensor:
 
 def wrap_to_2pi(phi: torch.Tensor) -> torch.Tensor:
     """Wrap angle to [0, 2pi) range.
-    
+
     Args:
         phi: Angle in radians.
-        
+
     Returns:
         Angle wrapped to [0, 2pi).
     """
@@ -54,52 +55,54 @@ def wrap_to_2pi(phi: torch.Tensor) -> torch.Tensor:
 
 def kabsch_rotate(P: np.ndarray, Q: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
     """Find optimal rotation aligning P onto Q.
-    
+
     Args:
         P: (N, 3) source points.
         Q: (N, 3) target points.
-        
+
     Returns:
         (P_aligned, rotation_matrix) where P_aligned = (P - P_com) @ R
     """
     P_centered = P - P.mean(axis=0)
     Q_centered = Q - Q.mean(axis=0)
-    
+
     C = P_centered.T @ Q_centered
     V, _, Wt = np.linalg.svd(C)
     d = np.sign(np.linalg.det(V @ Wt))
     D = np.diag([1.0, 1.0, d])
     R = V @ D @ Wt
-    
+
     P_aligned = P_centered @ R
     return P_aligned, R
 
 
 def rmsd(P: np.ndarray, Q: np.ndarray) -> float:
     """Compute RMSD between two point sets after optimal alignment.
-    
+
     Args:
         P: (N, 3) source points.
         Q: (N, 3) target points.
-        
+
     Returns:
         RMSD value in same units as input.
     """
     if P.shape != Q.shape:
         raise ValueError(f"Shape mismatch: {P.shape} vs {Q.shape}")
-    
+
     P_aligned, _ = kabsch_rotate(P, Q)
     Q_centered = Q - Q.mean(axis=0)
     diff = P_aligned - Q_centered
     return float(np.sqrt(np.mean(np.sum(diff * diff, axis=1))))
 
 
-def center_of_mass(R: Union[np.ndarray, torch.Tensor]) -> Union[np.ndarray, torch.Tensor]:
+def center_of_mass(
+    R: Union[np.ndarray, torch.Tensor],
+) -> Union[np.ndarray, torch.Tensor]:
     """Compute center of mass (equal weights).
-    
+
     Args:
         R: (..., N, 3) coordinates.
-        
+
     Returns:
         Center of mass with same type as input.
     """

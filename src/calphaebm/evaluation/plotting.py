@@ -1,11 +1,10 @@
-# src/calphaebm/evaluation/plotting.py
-
 """Plotting functions for evaluation results."""
+
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 
 import matplotlib.pyplot as plt
 import numpy as np
-from pathlib import Path
-from typing import Optional, List, Dict, Any
 
 
 def plot_rg(
@@ -16,23 +15,23 @@ def plot_rg(
 ) -> plt.Figure:
     """Plot radius of gyration vs frame."""
     fig, ax = plt.subplots(figsize=(10, 6))
-    
+
     x = np.arange(len(rg_series))
     ax.plot(x, rg_series, "b-", linewidth=1.5, label="Rg(t)")
     ax.axhline(rg_ref, color="k", linestyle="--", linewidth=1.0, label="Reference")
-    
+
     ax.set_xlabel("Frame", fontsize=12)
     ax.set_ylabel("Rg (Å)", fontsize=12)
     ax.set_title("Radius of Gyration", fontsize=14)
     ax.legend()
     ax.grid(True, alpha=0.3)
-    
+
     plt.tight_layout()
-    
+
     if out_path:
         plt.savefig(out_path, dpi=dpi)
         plt.close()
-    
+
     return fig
 
 
@@ -43,22 +42,22 @@ def plot_delta_rg(
 ) -> plt.Figure:
     """Plot ΔRg vs frame."""
     fig, ax = plt.subplots(figsize=(10, 6))
-    
+
     x = np.arange(len(delta_rg_series))
     ax.plot(x, delta_rg_series, "b-", linewidth=1.5)
     ax.axhline(0.0, color="k", linestyle="--", linewidth=1.0)
-    
+
     ax.set_xlabel("Frame", fontsize=12)
     ax.set_ylabel("ΔRg (Å)", fontsize=12)
     ax.set_title("ΔRg vs Reference", fontsize=14)
     ax.grid(True, alpha=0.3)
-    
+
     plt.tight_layout()
-    
+
     if out_path:
         plt.savefig(out_path, dpi=dpi)
         plt.close()
-    
+
     return fig
 
 
@@ -69,21 +68,21 @@ def plot_rmsd(
 ) -> plt.Figure:
     """Plot RMSD vs frame."""
     fig, ax = plt.subplots(figsize=(10, 6))
-    
+
     x = np.arange(len(rmsd_series))
     ax.plot(x, rmsd_series, "r-", linewidth=1.5)
-    
+
     ax.set_xlabel("Frame", fontsize=12)
     ax.set_ylabel("RMSD (Å)", fontsize=12)
     ax.set_title("Cα RMSD to Reference", fontsize=14)
     ax.grid(True, alpha=0.3)
-    
+
     plt.tight_layout()
-    
+
     if out_path:
         plt.savefig(out_path, dpi=dpi)
         plt.close()
-    
+
     return fig
 
 
@@ -96,22 +95,22 @@ def plot_q(
 ) -> plt.Figure:
     """Plot Q vs frame."""
     fig, ax = plt.subplots(figsize=(10, 6))
-    
+
     x = np.arange(len(q_series))
     ax.plot(x, q_series, f"{color}-", linewidth=1.5)
     ax.set_ylim(-0.05, 1.05)
-    
+
     ax.set_xlabel("Frame", fontsize=12)
     ax.set_ylabel("Q", fontsize=12)
     ax.set_title(title, fontsize=14)
     ax.grid(True, alpha=0.3)
-    
+
     plt.tight_layout()
-    
+
     if out_path:
         plt.savefig(out_path, dpi=dpi)
         plt.close()
-    
+
     return fig
 
 
@@ -123,24 +122,24 @@ def plot_q_comparison(
 ) -> plt.Figure:
     """Plot Q_hard and Q_smooth together."""
     fig, ax = plt.subplots(figsize=(10, 6))
-    
+
     x = np.arange(len(q_hard_series))
     ax.plot(x, q_hard_series, "b-", linewidth=1.5, label="Q_hard")
     ax.plot(x, q_smooth_series, "r-", linewidth=1.5, label="Q_smooth")
     ax.set_ylim(-0.05, 1.05)
-    
+
     ax.set_xlabel("Frame", fontsize=12)
     ax.set_ylabel("Q", fontsize=12)
     ax.set_title("Native Contact Fraction", fontsize=14)
     ax.legend()
     ax.grid(True, alpha=0.3)
-    
+
     plt.tight_layout()
-    
+
     if out_path:
         plt.savefig(out_path, dpi=dpi)
         plt.close()
-    
+
     return fig
 
 
@@ -153,25 +152,30 @@ def plot_min_distance(
 ) -> plt.Figure:
     """Plot min and median nonbonded distances."""
     fig, ax = plt.subplots(figsize=(10, 6))
-    
+
     x = np.arange(len(min_series))
     ax.plot(x, min_series, "r-", linewidth=1.5, label="Min")
     ax.plot(x, median_series, "b-", linewidth=1.5, label="Median")
-    ax.axhline(clash_threshold, color="k", linestyle="--", linewidth=1.0,
-               label=f"Clash ({clash_threshold:.1f} Å)")
-    
+    ax.axhline(
+        clash_threshold,
+        color="k",
+        linestyle="--",
+        linewidth=1.0,
+        label=f"Clash ({clash_threshold:.1f} Å)",
+    )
+
     ax.set_xlabel("Frame", fontsize=12)
     ax.set_ylabel("Distance (Å)", fontsize=12)
     ax.set_title("Nonbonded Distances", fontsize=14)
     ax.legend()
     ax.grid(True, alpha=0.3)
-    
+
     plt.tight_layout()
-    
+
     if out_path:
         plt.savefig(out_path, dpi=dpi)
         plt.close()
-    
+
     return fig
 
 
@@ -184,17 +188,17 @@ def plot_rdf(
 ) -> Dict[str, plt.Figure]:
     """Plot RDF in various forms."""
     figs = {}
-    
+
     # Raw counts
     fig1, ax1 = plt.subplots(figsize=(10, 6))
-    ax1.bar(centers, counts, width=centers[1]-centers[0], alpha=0.7)
+    ax1.bar(centers, counts, width=centers[1] - centers[0], alpha=0.7)
     ax1.set_xlabel("r (Å)", fontsize=12)
     ax1.set_ylabel("Counts", fontsize=12)
     ax1.set_title("RDF - Raw Counts", fontsize=14)
     ax1.grid(True, alpha=0.3)
     plt.tight_layout()
     figs["counts"] = fig1
-    
+
     # Normalized
     fig2, ax2 = plt.subplots(figsize=(10, 6))
     ax2.plot(centers, norm, "b-", linewidth=2)
@@ -205,53 +209,55 @@ def plot_rdf(
     ax2.grid(True, alpha=0.3)
     plt.tight_layout()
     figs["norm"] = fig2
-    
+
     if out_dir:
         fig1.savefig(out_dir / "rdf_counts.png", dpi=dpi)
         fig2.savefig(out_dir / "rdf_norm.png", dpi=dpi)
         plt.close(fig1)
         plt.close(fig2)
-    
+
     return figs
 
 
 def plot_all(
-    report: "EvaluationReport",  # Forward reference
+    report: "EvaluationReport",
     out_dir: Path,
     dpi: int = 200,
 ) -> None:
     """Generate all plots for an evaluation report."""
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    
+
     # Rg plots
     plot_rg(report.rg_series, report.rg_ref, out_dir / "rg.png", dpi)
     plot_delta_rg(report.delta_rg_series, out_dir / "delta_rg.png", dpi)
-    
+
     # RMSD
     plot_rmsd(report.rmsd_series, out_dir / "rmsd.png", dpi)
-    
+
     # Q plots
     if report.q_hard_series.size > 0:
         plot_q(report.q_hard_series, "Q_hard", "b", out_dir / "q_hard.png", dpi)
-    
+
     if report.q_smooth_series.size > 0:
         plot_q(report.q_smooth_series, "Q_smooth", "r", out_dir / "q_smooth.png", dpi)
-    
+
     if report.q_hard_series.size > 0 and report.q_smooth_series.size > 0:
-        plot_q_comparison(report.q_hard_series, report.q_smooth_series,
-                          out_dir / "q_comparison.png", dpi)
-    
-    # Distance plots
-    mins, medians = batch_min_distances(
-        np.array([report.rg_series]),  # This is wrong - fix in real usage
-        2
+        plot_q_comparison(
+            report.q_hard_series,
+            report.q_smooth_series,
+            out_dir / "q_comparison.png",
+            dpi,
+        )
+
+    # Distance plots - fixed to use out_path, not out_dir
+    plot_min_distance(
+        report.min_distances_series,
+        report.min_distances_series,  # Using same for min and median (temporary)
+        clash_threshold=3.8,
+        out_path=out_dir / "min_distance.png",
+        dpi=dpi,
     )
-    # Actually we need min_distances_series from report
-    # For now, placeholder
-    plot_min_distance(report.min_distances_series, report.min_distances_series,
-                      out_dir=out_dir / "min_distance.png", dpi=dpi)
-    
+
     # RDF
-    plot_rdf(report.rdf_centers, report.rdf_counts, report.rdf_norm,
-             out_dir, dpi)
+    plot_rdf(report.rdf_centers, report.rdf_counts, report.rdf_norm, out_dir, dpi)

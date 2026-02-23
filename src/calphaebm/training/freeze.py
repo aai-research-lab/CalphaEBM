@@ -2,8 +2,9 @@
 
 """Utilities for freezing/unfreezing modules during phased training."""
 
+from typing import List, Optional
+
 import torch.nn as nn
-from typing import Optional, List, Union
 
 
 def set_requires_grad(
@@ -11,7 +12,7 @@ def set_requires_grad(
     requires_grad: bool,
 ) -> None:
     """Set requires_grad for all parameters in a module.
-    
+
     Args:
         module: PyTorch module (may be None).
         requires_grad: Whether parameters require gradients.
@@ -24,7 +25,7 @@ def set_requires_grad(
 
 def freeze_module(module: Optional[nn.Module]) -> None:
     """Freeze all parameters in a module.
-    
+
     Args:
         module: PyTorch module (may be None).
     """
@@ -33,7 +34,7 @@ def freeze_module(module: Optional[nn.Module]) -> None:
 
 def unfreeze_module(module: Optional[nn.Module]) -> None:
     """Unfreeze all parameters in a module.
-    
+
     Args:
         module: PyTorch module (may be None).
     """
@@ -46,7 +47,7 @@ def freeze_by_names(
     freeze: bool = True,
 ) -> None:
     """Freeze/unfreeze modules by name.
-    
+
     Args:
         model: Model containing submodules.
         names: List of submodule names (e.g., ['local', 'repulsion']).
@@ -62,10 +63,10 @@ def freeze_by_names(
 
 def get_trainable_params(model: nn.Module) -> List[nn.Parameter]:
     """Get all parameters that require gradients.
-    
+
     Args:
         model: PyTorch model.
-        
+
     Returns:
         List of trainable parameters.
     """
@@ -74,10 +75,10 @@ def get_trainable_params(model: nn.Module) -> List[nn.Parameter]:
 
 def count_trainable_params(model: nn.Module) -> int:
     """Count number of trainable parameters.
-    
+
     Args:
         model: PyTorch model.
-        
+
     Returns:
         Number of trainable parameters.
     """

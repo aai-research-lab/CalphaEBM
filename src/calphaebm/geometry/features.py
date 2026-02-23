@@ -7,12 +7,12 @@ import torch
 
 def phi_sincos(phi: torch.Tensor) -> torch.Tensor:
     """Convert torsion angles to sin/cos features.
-    
+
     This transformation handles periodicity and avoids discontinuities.
-    
+
     Args:
         phi: (..., L) torsion angles in radians.
-        
+
     Returns:
         (..., L, 2) tensor with [sin(phi), cos(phi)].
     """
@@ -21,11 +21,11 @@ def phi_sincos(phi: torch.Tensor) -> torch.Tensor:
 
 def theta_features(theta: torch.Tensor, use_cos: bool = True) -> torch.Tensor:
     """Convert bond angles to features.
-    
+
     Args:
         theta: Bond angles in radians.
         use_cos: If True, return cos(theta) for better numerics.
-        
+
     Returns:
         Features of shape (..., 1).
     """
@@ -40,12 +40,12 @@ def distance_features(
     widths: torch.Tensor,
 ) -> torch.Tensor:
     """Radial basis function features for distances.
-    
+
     Args:
         r: Distances.
         centers: RBF centers.
         widths: RBF widths.
-        
+
     Returns:
         RBF features of shape (..., len(centers)).
     """
