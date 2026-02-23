@@ -51,3 +51,6 @@ site/
 # OS
 .DS_Store
 Thumbs.db
+# local artifacts / data
+*.json
+*.txt
