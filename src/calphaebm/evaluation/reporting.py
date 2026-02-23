@@ -59,6 +59,8 @@ class EvaluationReport:
     q_smooth_series: np.ndarray = field(default_factory=lambda: np.array([]))
     contacts_series: np.ndarray = field(default_factory=lambda: np.array([]))
     min_distances_series: np.ndarray = field(default_factory=lambda: np.array([]))
+    # ADDED: median distances series for plotting
+    median_distances_series: np.ndarray = field(default_factory=lambda: np.array([]))
 
     # RDF
     rdf_centers: np.ndarray = field(default_factory=lambda: np.array([]))
@@ -77,39 +79,27 @@ class EvaluationReport:
         lines.append("")
         lines.append(f"Rg_ref: {self.rg_ref:.3f} A")
         lines.append(f"Rg_mean: {self.rg_mean:.3f} +/- {self.rg_std:.3f} A")
-        lines.append(
-            f"Delta Rg: {self.delta_rg_mean:.3f} +/- {self.delta_rg_std:.3f} A"
-        )
+        lines.append(f"Delta Rg: {self.delta_rg_mean:.3f} +/- {self.delta_rg_std:.3f} A")
         lines.append("")
         lines.append(f"RMSD_mean: {self.rmsd_mean:.3f} +/- {self.rmsd_std:.3f} A")
         lines.append("")
         if self.q_hard_mean is not None:
             lines.append(f"Q_hard: {self.q_hard_mean:.3f} +/- {self.q_hard_std:.3f}")
         if self.q_smooth_mean is not None:
-            lines.append(
-                f"Q_smooth: {self.q_smooth_mean:.3f} +/- {self.q_smooth_std:.3f}"
-            )
+            lines.append(f"Q_smooth: {self.q_smooth_mean:.3f} +/- {self.q_smooth_std:.3f}")
         lines.append("")
         lines.append(f"Contacts: {self.contacts_mean:.1f} +/- {self.contacts_std:.1f}")
         lines.append(f"Native contacts: {self.native_contacts}")
         lines.append("")
-        lines.append(
-            f"Min distance (median mean): {self.min_distance_median_mean:.3f} A"
-        )
-        lines.append(
-            f"Min distance (absolute min): {self.min_distance_absolute_min:.3f} A"
-        )
+        lines.append(f"Min distance (median mean): {self.min_distance_median_mean:.3f} A")
+        lines.append(f"Min distance (absolute min): {self.min_distance_absolute_min:.3f} A")
         lines.append(f"Clash probability (all): {self.clash_probability_all:.4f}")
-        lines.append(
-            f"Clash probability (post-burnin): {self.clash_probability_post_burnin:.4f}"
-        )
+        lines.append(f"Clash probability (post-burnin): {self.clash_probability_post_burnin:.4f}")
         lines.append("=" * 60)
 
         return "\n".join(lines)
 
-    def save(
-        self, out_dir: Path, prefix: str = "eval", generate_plots: bool = True
-    ) -> None:
+    def save(self, out_dir: Path, prefix: str = "eval", generate_plots: bool = True) -> None:
         """Save all results to directory.
 
         Args:
@@ -156,6 +146,7 @@ class EvaluationReport:
             "delta_rg": self.delta_rg_series,
             "contacts": self.contacts_series,
             "min_distance": self.min_distances_series,
+            "median_distance": self.median_distances_series,  # ADDED
         }
         if self.q_hard_series.size > 0:
             series["q_hard"] = self.q_hard_series
@@ -216,9 +207,7 @@ class TrajectoryEvaluator:
         n_frames, n_atoms = traj_array.shape[:2]
 
         # Reference native contacts
-        native_i, native_j, native_d0 = native_contact_set(
-            reference, cutoff=self.contact_cutoff, exclude=self.exclude
-        )
+        native_i, native_j, native_d0 = native_contact_set(reference, cutoff=self.contact_cutoff, exclude=self.exclude)
         n_native = len(native_i)
 
         # Compute metrics for all frames
@@ -226,12 +215,7 @@ class TrajectoryEvaluator:
         rgs = batch_rg(traj_array)
         delta_rgs = rgs - radius_of_gyration(reference)
 
-        contacts = np.array(
-            [
-                contact_count(frame, self.contact_cutoff, self.exclude)
-                for frame in traj_array
-            ]
-        )
+        contacts = np.array([contact_count(frame, self.contact_cutoff, self.exclude) for frame in traj_array])
 
         mins, medians = batch_min_distances(traj_array, self.exclude)
 
@@ -240,12 +224,7 @@ class TrajectoryEvaluator:
         q_smooths = None
 
         if n_native > 0:
-            q_hards = np.array(
-                [
-                    q_hard(frame, native_i, native_j, self.contact_cutoff)
-                    for frame in traj_array
-                ]
-            )
+            q_hards = np.array([q_hard(frame, native_i, native_j, self.contact_cutoff) for frame in traj_array])
 
             if compute_q_smooth:
                 q_smooths = np.array(
@@ -263,14 +242,10 @@ class TrajectoryEvaluator:
                 )
 
         # RDF
-        rdf_centers, rdf_counts, rdf_norm = batch_rdf(
-            traj_array, self.rdf_rmax, self.rdf_dr, self.exclude
-        )
+        rdf_centers, rdf_counts, rdf_norm = batch_rdf(traj_array, self.rdf_rmax, self.rdf_dr, self.exclude)
 
         # Clash probabilities
-        p_all, p_post = clash_probability(
-            traj_array, self.clash_threshold, self.exclude, burnin
-        )
+        p_all, p_post = clash_probability(traj_array, self.clash_threshold, self.exclude, burnin)
 
         # Burnin indices
         if burnin > 0 and burnin < n_frames:
@@ -308,6 +283,7 @@ class TrajectoryEvaluator:
             q_smooth_series=q_smooths if q_smooths is not None else np.array([]),
             contacts_series=contacts,
             min_distances_series=mins,
+            median_distances_series=medians,  # ADDED
             rdf_centers=rdf_centers,
             rdf_counts=rdf_counts,
             rdf_norm=rdf_norm,

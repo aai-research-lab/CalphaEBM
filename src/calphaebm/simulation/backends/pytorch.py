@@ -19,7 +19,7 @@ class PyTorchSimulator(Simulator):
     Implements:
         R_{t+1} = R_t + step_size * F(R_t) + sqrt(2 * step_size / beta) * noise
 
-    with optional force clipping.
+    with optional force clipping and NaN detection.
     """
 
     def __init__(
@@ -32,9 +32,7 @@ class PyTorchSimulator(Simulator):
         super().__init__(model)
         self.beta = beta
         self.force_cap = force_cap
-        self.device = device or torch.device(
-            "cuda" if torch.cuda.is_available() else "cpu"
-        )
+        self.device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     def _compute_forces(self, R: torch.Tensor, seq: torch.Tensor) -> torch.Tensor:
         """Compute forces = -grad(E)."""
@@ -67,7 +65,7 @@ class PyTorchSimulator(Simulator):
         log_every: int = 50,
         **kwargs,
     ) -> SimulationResult:
-        """Run Langevin dynamics.
+        """Run Langevin dynamics with NaN detection.
 
         Args:
             R0: (B, L, 3) initial coordinates.
@@ -100,12 +98,30 @@ class PyTorchSimulator(Simulator):
         logger.info(f"  step_size = {step_size:.2e}, beta = {self.beta}")
         logger.info(f"  force_cap = {self.force_cap}")
 
-        # Initial frame - step passed as first argument, not in kwargs
+        # Initial frame
         self._notify_observers(0, R, seq=seq, **kwargs)
 
+        completed_steps = n_steps
         for step in range(1, n_steps + 1):
             # Compute forces
             F = self._compute_forces(R, seq)
+
+            # ===== NAN CHECK =====
+            if torch.isnan(F).any():
+                logger.error(f"NaN detected in forces at step {step}! Stopping simulation.")
+                logger.error(f"  R stats: min={R.min():.3f}, max={R.max():.3f}, mean={R.mean():.3f}")
+                logger.error(f"  F stats: min={F.min():.3f}, max={F.max():.3f}, mean={F.mean():.3f}")
+
+                # Save the last valid frame for debugging
+                torch.save(R, f"debug_last_valid_step_{step-1}.pt")
+                logger.info(f"Saved last valid frame to debug_last_valid_step_{step-1}.pt")
+                completed_steps = step - 1
+                break
+
+            # Check for extreme values (early warning)
+            if torch.abs(F).max() > 1000:
+                logger.warning(f"Large forces detected at step {step}: max|F|={torch.abs(F).max():.3f}")
+            # ====================
 
             # Apply force clipping
             if self.force_cap:
@@ -116,6 +132,12 @@ class PyTorchSimulator(Simulator):
             # Update positions
             noise = noise_scale * torch.randn_like(R)
             R = R + step_size * F + noise
+
+            # Check positions for NaN
+            if torch.isnan(R).any():
+                logger.error(f"NaN detected in positions at step {step}! Stopping simulation.")
+                completed_steps = step - 1
+                break
 
             # Notify observers
             self._notify_observers(
@@ -134,9 +156,7 @@ class PyTorchSimulator(Simulator):
                     E = self.model(R, seq).mean().item()
                     max_force = safe_norm(F, dim=-1).max().item()
 
-                log_msg = (
-                    f"step {step:6d}/{n_steps} | E={E:.3f} | max|F|={max_force:.3f}"
-                )
+                log_msg = f"step {step:6d}/{n_steps} | E={E:.3f} | max|F|={max_force:.3f}"
                 if self.force_cap:
                     log_msg += f" | clip={clip_frac:.3f}"
                 logger.info(log_msg)
@@ -151,7 +171,9 @@ class PyTorchSimulator(Simulator):
             min_distances=data.get("min_distance"),
             clip_fractions=data.get("clip_fraction"),
             metadata={
-                "n_steps": n_steps,
+                "n_steps": completed_steps,
+                "target_steps": n_steps,
+                "completed": completed_steps >= n_steps,
                 "step_size": step_size,
                 "beta": self.beta,
                 "force_cap": self.force_cap,
@@ -161,6 +183,9 @@ class PyTorchSimulator(Simulator):
         )
 
         logger.info(f"Simulation complete: {len(result.trajectories)} frames saved")
+        if completed_steps < n_steps:
+            logger.warning(f"Simulation stopped early at step {completed_steps}/{n_steps} due to NaN")
+
         return result
 
     def run_with_snapshots(

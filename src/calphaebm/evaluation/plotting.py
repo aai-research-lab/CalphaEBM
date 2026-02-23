@@ -250,14 +250,26 @@ def plot_all(
             dpi,
         )
 
-    # Distance plots - fixed to use out_path, not out_dir
-    plot_min_distance(
-        report.min_distances_series,
-        report.min_distances_series,  # Using same for min and median (temporary)
-        clash_threshold=3.8,
-        out_path=out_dir / "min_distance.png",
-        dpi=dpi,
-    )
+    # ===== FIXED MIN DISTANCE PLOTTING =====
+    # Now using both min and median series from the report
+    if hasattr(report, "median_distances_series") and report.median_distances_series.size > 0:
+        plot_min_distance(
+            report.min_distances_series,
+            report.median_distances_series,
+            clash_threshold=3.8,
+            out_path=out_dir / "min_distance.png",
+            dpi=dpi,
+        )
+    else:
+        # Fallback for backward compatibility
+        plot_min_distance(
+            report.min_distances_series,
+            report.min_distances_series,
+            clash_threshold=3.8,
+            out_path=out_dir / "min_distance.png",
+            dpi=dpi,
+        )
+    # ======================================
 
     # RDF
     plot_rdf(report.rdf_centers, report.rdf_counts, report.rdf_norm, out_dir, dpi)
