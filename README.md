@@ -1,4 +1,4 @@
-# CalphaEBM: Cα Energy-Based Model for Protein Dynamics
+# CalphaEBM: Cα Energy-Based Model
 
 [![Tests](https://github.com/aai-research-lab/CalphaEBM/actions/workflows/tests.yml/badge.svg)](https://github.com/aai-research-lab/CalphaEBM/actions/workflows/tests.yml)
 [![Documentation](https://github.com/aai-research-lab/CalphaEBM/actions/workflows/docs.yml/badge.svg)](https://aai-research-lab.github.io/CalphaEBM/)
