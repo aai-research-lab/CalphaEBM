@@ -8,13 +8,18 @@ AA3_TO_AA1: Dict[str, str] = {
     "GLY": "G", "HIS": "H", "ILE": "I", "LYS": "K", "LEU": "L",
     "MET": "M", "ASN": "N", "PRO": "P", "GLN": "Q", "ARG": "R",
     "SER": "S", "THR": "T", "VAL": "V", "TRP": "W", "TYR": "Y",
-    # Common alternates
+    # Common alternates / modified residues
     "MSE": "M",  # selenomethionine -> methionine
     "SEC": "C",  # selenocysteine -> cysteine (approx)
     "PYL": "K",  # pyrrolysine -> lysine (approx)
     "HIP": "H",  # protonated histidine
     "HID": "H",  # histidine (delta protonated)
     "HIE": "H",  # histidine (epsilon protonated)
+
+    # Common ambiguous/unknown labels in structures (mapped to something reasonable or skipped downstream)
+    "ASX": "D",  # Asp/Asn ambiguous -> treat as Asp
+    "GLX": "E",  # Glu/Gln ambiguous -> treat as Glu
+    "UNK": "X",  # unknown residue
 }
 
 # 1-letter to index (0-19) - Fixed order
@@ -24,9 +29,7 @@ AA1_TO_IDX: Dict[str, int] = {
 }
 
 # Reverse mapping: index to 1-letter
-IDX_TO_AA1: Dict[int, str] = {
-    i: aa for aa, i in AA1_TO_IDX.items()
-}
+IDX_TO_AA1: Dict[int, str] = {i: aa for aa, i in AA1_TO_IDX.items()}
 
 # Standard 3-letter order (for reference)
 STANDARD_AA3: list = [
@@ -38,26 +41,23 @@ STANDARD_AA3: list = [
 def aa3_to_idx(resname3: str) -> Optional[int]:
     """Convert 3-letter amino acid code to index (0-19).
 
-    Args:
-        resname3: 3-letter code (case insensitive).
-
-    Returns:
-        Integer index 0-19, or None if not recognized.
+    Returns None if not recognized or maps to unknown ("X").
     """
     if not resname3:
         return None
-
     resname3 = resname3.strip().upper()
     aa1 = AA3_TO_AA1.get(resname3)
-    if aa1 is None:
+    if aa1 is None or aa1 == "X":
         return None
-
     return AA1_TO_IDX.get(aa1)
 
 
 def aa1_to_idx(aa1: str) -> Optional[int]:
     """Convert 1-letter amino acid code to index (0-19)."""
-    return AA1_TO_IDX.get(aa1.upper())
+    if not aa1:
+        return None
+    aa1 = aa1.strip().upper()
+    return AA1_TO_IDX.get(aa1)
 
 
 def idx_to_aa1(idx: int) -> str:

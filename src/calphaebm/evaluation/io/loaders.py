@@ -21,7 +21,7 @@ def load_coords_from_pt(path: str) -> np.ndarray:
     Handles both raw tensors and dicts containing coordinates.
     Returns (N,3) for single frame or (F,N,3) for multi-frame.
     """
-    d = torch.load(path, map_location="cpu")
+    d = torch.load(path, map_location="cpu", weights_only=False)
 
     # Case 1: raw tensor
     if isinstance(d, torch.Tensor):

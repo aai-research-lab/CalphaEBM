@@ -1,342 +1,177 @@
-# src/calphaebm/training/phased.py
-
-"""Phased training manager for curriculum learning."""
+"""Main phased trainer - orchestrates different training phases."""
 
 from __future__ import annotations
 
-import os
-from dataclasses import dataclass
-from typing import Dict, List, Optional
+from typing import Dict, Optional, Tuple
 
 import torch
-import torch.nn as nn
 from torch.utils.data import DataLoader
 
-from calphaebm.training.freeze import freeze_module
-from calphaebm.utils.logging import ProgressBar, get_logger
+from calphaebm.training.core.config import PhaseConfig
+from calphaebm.training.core.state import TrainingState
+from calphaebm.training.core.trainer import BaseTrainer
+from calphaebm.training.phases.full_phase import run_full_phase
+from calphaebm.training.phases.local_phase import run_local_phase
+from calphaebm.training.phases.packing_phase import run_packing_phase
+from calphaebm.training.phases.repulsion_phase import run_repulsion_phase
+from calphaebm.training.phases.secondary_phase import run_secondary_phase
+from calphaebm.utils.logging import get_logger
 
 logger = get_logger()
 
 
-@dataclass
-class PhaseConfig:
-    """Configuration for a training phase."""
+def _get_packing_ramp_from_config(config: PhaseConfig) -> Tuple[Optional[float], Optional[float], int]:
+    """Extract a packing ramp (start, end, steps) from config if present.
 
-    name: str  # 'local', 'repulsion', 'secondary', 'packing'
-    terms: List[str]  # Which terms are active
-    freeze: List[str]  # Which terms to freeze
-    loss_fn: str  # 'dsm', 'contrastive', 'repulsion_calibrate'
-    n_steps: int
-    lr: float = 3e-4
-    save_every: int = 500
-
-
-@dataclass
-class TrainingState:
-    """Current training state."""
-
-    step: int
-    phase: str
-    phase_step: int
-    losses: Dict[str, float]
-    gates: Dict[str, float]
-
-
-class PhasedTrainer:
-    """Manager for phased training of energy models.
-
-    Handles:
-    - Freezing/unfreezing terms appropriately
-    - Checkpointing with experiment prefix
-    - Loss function switching between phases
-    - Progress logging and metrics
+    Supports both styles:
+      1) packing-specific fields: ramp_pack_start / ramp_pack_end / ramp_steps
+      2) full-phase dict fields: ramp_start["packing"] / ramp_end["packing"] / ramp_steps
     """
+    ramp_steps = int(getattr(config, "ramp_steps", 0) or 0)
 
-    def __init__(
-        self,
-        model: nn.Module,
-        device: torch.device,
-        ckpt_dir: str = "checkpoints",
-        experiment_prefix: str = "run1",
-        save_mode: str = "full",  # 'full' or 'phase'
-    ):
-        self.model = model
-        self.device = device
-        self.ckpt_dir = ckpt_dir
-        self.experiment_prefix = experiment_prefix
-        self.save_mode = save_mode
+    ramp_pack_start = getattr(config, "ramp_pack_start", None)
+    ramp_pack_end = getattr(config, "ramp_pack_end", None)
 
-        self.optimizer = None
-        self.current_phase = None
-        self.current_step = 0
-        self.phase_step = 0
+    # Fall back to dict-style ramps (used for full phase)
+    ramp_start_dict = getattr(config, "ramp_start", None) or {}
+    ramp_end_dict = getattr(config, "ramp_end", None) or {}
 
-        # Create checkpoint directory
-        os.makedirs(ckpt_dir, exist_ok=True)
+    if ramp_pack_start is None and isinstance(ramp_start_dict, dict):
+        ramp_pack_start = ramp_start_dict.get("packing", None)
+    if ramp_pack_end is None and isinstance(ramp_end_dict, dict):
+        ramp_pack_end = ramp_end_dict.get("packing", None)
 
-    def _phase_path(self, phase: str) -> str:
-        """Get checkpoint directory for a phase."""
-        return os.path.join(self.ckpt_dir, self.experiment_prefix, phase)
+    start = float(ramp_pack_start) if ramp_pack_start is not None else None
+    end = float(ramp_pack_end) if ramp_pack_end is not None else None
 
-    def _checkpoint_path(self, phase: str, step: int) -> str:
-        """Get checkpoint file path."""
-        return os.path.join(self._phase_path(phase), f"step{step:06d}.pt")
+    return start, end, ramp_steps
 
-    def save_checkpoint(self, phase: str, step: int, loss: float) -> str:
-        """Save model checkpoint."""
-        path = self._checkpoint_path(phase, step)
-        os.makedirs(os.path.dirname(path), exist_ok=True)
 
-        payload = {
-            "step": step,
-            "phase": phase,
-            "loss": loss,
-            "model_state": self.model.state_dict(),
-            "gates": self.model.get_gates() if hasattr(self.model, "get_gates") else {},
-        }
+class PhasedTrainer(BaseTrainer):
+    """Manager for phased training of energy models."""
 
-        if self.optimizer is not None:
-            payload["optimizer_state"] = self.optimizer.state_dict()
-
-        torch.save(payload, path)
-        logger.info(f"Saved checkpoint: {path}")
-        return path
-
-    def load_checkpoint(
-        self,
-        path: str,
-        load_optimizer: bool = True,
-        strict: bool = False,
-    ) -> TrainingState:
-        """Load checkpoint and return state."""
-        ckpt = torch.load(path, map_location=self.device)
-
-        self.model.load_state_dict(ckpt["model_state"], strict=strict)
-
-        if load_optimizer and self.optimizer is not None and "optimizer_state" in ckpt:
-            self.optimizer.load_state_dict(ckpt["optimizer_state"])
-
-        if "gates" in ckpt and hasattr(self.model, "set_gates"):
-            self.model.set_gates(**ckpt["gates"])
-
-        state = TrainingState(
-            step=ckpt.get("step", 0),
-            phase=ckpt.get("phase", "unknown"),
-            phase_step=ckpt.get("step", 0),
-            losses={"loss": ckpt.get("loss", 0.0)},
-            gates=ckpt.get("gates", {}),
-        )
-
-        logger.info(f"Loaded checkpoint from {path} (step {state.step})")
-        return state
-
-    def find_latest_checkpoint(self, phase: str) -> Optional[str]:
-        """Find latest checkpoint for a phase."""
-        phase_dir = self._phase_path(phase)
-        if not os.path.exists(phase_dir):
-            return None
-
-        checkpoints = [
-            f
-            for f in os.listdir(phase_dir)
-            if f.startswith("step") and f.endswith(".pt")
-        ]
-        if not checkpoints:
-            return None
-
-        # Sort by step number
-        steps = [int(f.replace("step", "").replace(".pt", "")) for f in checkpoints]
-        latest_idx = max(range(len(steps)), key=lambda i: steps[i])
-
-        return os.path.join(phase_dir, checkpoints[latest_idx])
+    PHASE_RUNNERS = {
+        "local": run_local_phase,
+        "secondary": run_secondary_phase,
+        "repulsion": run_repulsion_phase,
+        "packing": run_packing_phase,
+        "full": run_full_phase,
+    }
 
     def run_phase(
         self,
         config: PhaseConfig,
         train_loader: DataLoader,
         val_loader: Optional[DataLoader] = None,
+        native_structures: Optional[Dict[str, torch.Tensor]] = None,
         resume: Optional[str] = None,
     ) -> TrainingState:
-        """Run a single training phase."""
+        self.config = config
+        self.converged = False
+        self.convergence_step = None
 
-        logger.info(f"Starting phase: {config.name}")
-        logger.info(f"Active terms: {config.terms}")
-        logger.info(f"Frozen terms: {config.freeze}")
+        self._setup_convergence_monitor(config)
 
-        # Apply freezing
-        for term in config.freeze:
-            if hasattr(self.model, term):
-                freeze_module(getattr(self.model, term))
-                logger.debug(f"Froze {term}")
+        logger.info("Starting phase: %s", config.name)
+        logger.info("Active terms: %s", config.terms)
+        logger.debug("Frozen terms: %s", config.freeze)
+        if getattr(config, "lr_schedule", None):
+            logger.debug("LR schedule: %s (%s -> %s)", config.lr_schedule, config.lr, config.lr_final)
 
-        # Setup optimizer
-        trainable_params = [p for p in self.model.parameters() if p.requires_grad]
-        logger.info(f"Trainable parameters: {len(trainable_params)}")
+        logger.debug("Convergence criteria:")
+        logger.debug("  Loss window: %d steps", int(self.convergence_config.loss_window))
+        logger.debug("  Loss tolerance: %.1f%%", float(self.convergence_config.loss_tolerance) * 100.0)
 
-        if len(trainable_params) > 0:
-            self.optimizer = torch.optim.AdamW(trainable_params, lr=config.lr)
+        if hasattr(self.model, "get_gates"):
+            logger.debug("Current gates before phase: %s", self.model.get_gates())
         else:
-            logger.warning("No trainable parameters in this phase")
-            self.optimizer = None
+            logger.debug("Model does not have get_gates method")
 
-        # Resume if requested
-        start_step = 0
-        if resume:
-            if resume == "auto":
-                resume = self.find_latest_checkpoint(config.name)
-
-            if resume:
-                state = self.load_checkpoint(resume, load_optimizer=True)
-                start_step = state.step
-                logger.info(f"Resumed from step {start_step}")
-
-        # Training loop
-        self.model.train()
-        data_iter = iter(train_loader)
-
-        progress = ProgressBar(config.n_steps, prefix=f"Phase {config.name}")
-
-        for phase_step in range(start_step + 1, config.n_steps + 1):
-            self.current_step += 1
-            self.phase_step = phase_step
-
-            # Get batch
-            try:
-                R, seq, _, _ = next(data_iter)
-            except StopIteration:
-                data_iter = iter(train_loader)
-                R, seq, _, _ = next(data_iter)
-
-            R = R.to(self.device)
-            seq = seq.to(self.device)
-
-            # Compute loss
-            loss = self._compute_loss(config, R, seq)
-
-            # Backward pass
-            if self.optimizer is not None:
-                self.optimizer.zero_grad()
-                loss.backward()
-                torch.nn.utils.clip_grad_norm_(trainable_params, 1.0)
-                self.optimizer.step()
-
-            # Logging
-            if phase_step == 1 or phase_step % 50 == 0:
-                logger.info(
-                    f"[{config.name}] step {phase_step:6d}/{config.n_steps} | "
-                    f"loss={loss.item():.6f}"
-                )
-
-            # Save checkpoint
-            if phase_step % config.save_every == 0:
-                self.save_checkpoint(config.name, phase_step, loss.item())
-
-            progress.update(1)
-
-        # Final checkpoint
-        final_path = self.save_checkpoint(config.name, config.n_steps, loss.item())
-        logger.info(f"Phase {config.name} complete: {final_path}")
-
-        return TrainingState(
-            step=self.current_step,
-            phase=config.name,
-            phase_step=config.n_steps,
-            losses={"loss": loss.item()},
-            gates=self.model.get_gates() if hasattr(self.model, "get_gates") else {},
+        # Detect whether packing ramp is configured for this phase.
+        pack_ramp_start, pack_ramp_end, ramp_steps = _get_packing_ramp_from_config(config)
+        packing_ramp_configured = (
+            config.name == "packing"
+            and pack_ramp_start is not None
+            and pack_ramp_end is not None
+            and ramp_steps > 0
         )
 
-    def _compute_loss(
-        self,
-        config: PhaseConfig,
-        R: torch.Tensor,
-        seq: torch.Tensor,
-    ) -> torch.Tensor:
-        """Compute loss for current phase."""
+        # Configure gates:
+        # - keep existing values for active terms
+        # - set inactive terms to 0.0
+        #
+        # IMPORTANT:
+        # - If we are in the packing phase AND a packing ramp is configured, we must NOT
+        #   leave packing at 0.0 (checkpoint could have 0.0) and must NOT “safeguard” it to 1.0.
+        #   Instead, set packing to the ramp start here (packing_phase will take over thereafter).
+        if hasattr(self.model, "set_gates"):
+            all_terms = ["local", "repulsion", "secondary", "packing"]
+            current_gates = self.model.get_gates() if hasattr(self.model, "get_gates") else {}
 
-        if config.loss_fn == "dsm":
-            from calphaebm.training.losses.dsm import dsm_cartesian_loss
-
-            return dsm_cartesian_loss(self.model, R, seq, sigma=0.25)
-
-        elif config.loss_fn == "contrastive":
-            from calphaebm.training.losses.contrastive import contrastive_logistic_loss
-
-            # This is a placeholder - actual contrastive loss depends on phase
-            if config.name == "secondary":
-                # Secondary structure: shuffle torsions
-                from calphaebm.geometry.internal import bond_angles, torsions
-
-                theta = bond_angles(R)
-                phi = torsions(R)
-
-                # Shuffle phi to break correlations
-                B, nphi = phi.shape
-                perm = torch.stack(
-                    [torch.randperm(nphi, device=phi.device) for _ in range(B)], dim=0
-                )
-                phi_neg = torch.gather(phi, 1, perm)
-
-                E_pos = self.model.secondary.energy_from_thetaphi(theta, phi, seq)
-                E_neg = self.model.secondary.energy_from_thetaphi(theta, phi_neg, seq)
-
-                return contrastive_logistic_loss(E_pos, E_neg)
-
-            elif config.name == "packing":
-                # Packing: use noisy structures as negatives
-                from calphaebm.simulation.backends.pytorch import langevin_sample
-
-                # Add noise and run short Langevin to get negatives
-                R_noisy = R + 1.0 * torch.randn_like(R)
-                snaps = langevin_sample(
-                    self.model,
-                    R0=R_noisy,
-                    seq=seq,
-                    n_steps=20,
-                    step_size=2e-4,
-                    force_cap=50.0,
-                    log_every=1000,  # Disable logging
-                )
-                R_neg = snaps[-1].to(self.device)
-
-                E_pos = self.model.packing(R, seq)
-                E_neg = self.model.packing(R_neg, seq)
-
-                return contrastive_logistic_loss(E_pos, E_neg)
-
-            else:
-                raise ValueError(
-                    f"Contrastive loss not implemented for phase {config.name}"
-                )
-
-        elif config.loss_fn == "repulsion_calibrate":
-            # Special case: repulsion calibration (no gradient)
-            from calphaebm.utils.neighbors import pairwise_distances
-
-            with torch.no_grad():
-                # Compute minimum nonbonded distance
-                B, L, _ = R.shape
-                D = pairwise_distances(R)
-
-                # Mask out bonded pairs
-                for i in range(L):
-                    D[:, i, max(0, i - 2) : min(L, i + 3)] = float("inf")
-
-                min_dist = D.amin(dim=(1, 2)).median()
-
-                # Adjust gate_rep based on min distance
-                current = self.model.gate_rep.item()
-                target_min = 3.6  # Target minimum distance
-
-                if min_dist < target_min:
-                    new_gate = current * 1.1  # Increase repulsion
+            gates: Dict[str, float] = {}
+            for term in all_terms:
+                if term in config.terms:
+                    if term == "packing" and packing_ramp_configured:
+                        gates[term] = float(pack_ramp_start)
+                    else:
+                        gates[term] = float(current_gates.get(term, 1.0))
                 else:
-                    new_gate = current * 0.9  # Decrease repulsion
+                    gates[term] = 0.0
 
-                new_gate = max(0.1, min(100.0, new_gate))
-                self.model.set_gates(gate_rep=new_gate)
+            self.model.set_gates(**gates)
+            logger.debug("Gates set to: %s", gates)
 
-                # Return dummy loss
-                return torch.tensor(min_dist, device=R.device, requires_grad=False)
+            # Safeguard: ensure active terms are not accidentally zeroed.
+            # Do NOT overwrite the packing ramp start (packing phase).
+            if hasattr(self.model, "get_gates"):
+                final_gates = self.model.get_gates()
 
+                for term in config.terms:
+                    if term not in final_gates:
+                        continue
+                    if float(final_gates[term]) != 0.0:
+                        continue
+
+                    if term == "packing" and packing_ramp_configured:
+                        safe_start = float(pack_ramp_start)
+                        self.model.set_gates(packing=safe_start)
+                        logger.warning(
+                            "Active term packing has gate 0.0 with ramp configured; setting packing gate to ramp start %.4f",
+                            safe_start,
+                        )
+                        continue
+
+                    logger.warning("Active term %s has gate 0.0; setting to 1.0", term)
+                    self.model.set_gates(**{term: 1.0})
+
+                logger.debug("Final gates after verification: %s", self.model.get_gates())
         else:
-            raise ValueError(f"Unknown loss function: {config.loss_fn}")
+            logger.warning("Model does not have set_gates method - cannot configure gates")
+
+        # Apply freezing - affects gradients only
+        from calphaebm.training.core.freeze import freeze_module
+
+        for term in config.freeze:
+            if hasattr(self.model, term) and getattr(self.model, term) is not None:
+                freeze_module(getattr(self.model, term))
+
+        phase_runner = self.PHASE_RUNNERS.get(config.name)
+        if phase_runner is None:
+            raise ValueError(f"Unknown phase: {config.name}")
+
+        state = phase_runner(
+            trainer=self,
+            config=config,
+            train_loader=train_loader,
+            val_loader=val_loader,
+            native_structures=native_structures,
+            resume=resume,
+        )
+
+        from calphaebm.training.core.freeze import unfreeze_module
+
+        for term in config.freeze:
+            if hasattr(self.model, term) and getattr(self.model, term) is not None:
+                unfreeze_module(getattr(self.model, term))
+
+        return state

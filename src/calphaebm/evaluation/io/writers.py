@@ -21,7 +21,8 @@ def save_metrics_json(
     for k, v in metrics.items():
         if hasattr(v, "item"):
             clean[k] = v.item()
-        elif isinstance(v, (list, tuple)) and hasattr(v[0], "item"):
+        elif isinstance(v, (list, tuple)) and len(v) > 0 and hasattr(v[0], "item"):
+            # BUG FIX: guard len(v) > 0 before accessing v[0]
             clean[k] = [x.item() for x in v]
         else:
             clean[k] = v
@@ -34,8 +35,19 @@ def save_metrics_txt(
     metrics: Dict[str, Any],
     path: Union[str, Path],
 ) -> None:
-    """Save metrics as human-readable text."""
+    """Save metrics as human-readable text.
+
+    If metrics contains a single key 'summary' whose value is a multi-line
+    string, write it directly rather than routing through the k/v formatter
+    (which would collapse newlines onto a single line).
+    """
     path = Path(path)
+
+    # BUG FIX: if this is just a summary string wrapper, write it directly
+    if set(metrics.keys()) == {"summary"} and isinstance(metrics["summary"], str):
+        with open(path, "w") as f:
+            f.write(metrics["summary"])
+        return
 
     lines = []
     lines.append("=" * 60)
@@ -49,7 +61,7 @@ def save_metrics_txt(
         elif isinstance(v, int):
             lines.append(f"{k:30s}: {v:d}")
         elif isinstance(v, str):
-            lines.append(f"{k:30s}: {v}")
+            lines.append(v)  # write multi-line strings as-is, no prefix
         elif isinstance(v, list) and len(v) > 0:
             if isinstance(v[0], float):
                 mean_val = sum(v) / len(v)

@@ -13,6 +13,66 @@ from calphaebm.utils.math import safe_norm
 logger = get_logger()
 
 
+def langevin_sample(model, R0, seq, n_steps=50, step_size=1e-3, force_cap=50.0, log_every=None):
+    """Simple Langevin dynamics for quick sampling.
+    
+    This function is designed for quick sampling during calibration and validation.
+    It ensures gradients are properly enabled for each step.
+    
+    Args:
+        model: Energy model
+        R0: (B, L, 3) initial coordinates
+        seq: (B, L) amino acid indices
+        n_steps: Number of steps
+        step_size: Step size
+        force_cap: Maximum force magnitude
+        log_every: If not None, save trajectory every log_every steps
+    
+    Returns:
+        List of trajectory frames
+    """
+    R = R0.clone()
+    trajectories = [R.clone()]
+    
+    for step in range(n_steps):
+        # CRITICAL: Ensure gradients are enabled for this step
+        # This is necessary even if we're in a no_grad context outside
+        with torch.enable_grad():
+            # Create a fresh tensor that requires gradients
+            R_grad = R.clone().detach().requires_grad_(True)
+            
+            # Compute energy and gradients
+            E = model(R_grad, seq).sum()
+            
+            # Debug: Check if energy requires grad
+            if not E.requires_grad:
+                print(f"WARNING: E.requires_grad = {E.requires_grad} at step {step}")
+                print(f"E.grad_fn = {E.grad_fn}")
+            
+            grad = torch.autograd.grad(E, R_grad, create_graph=False, retain_graph=False)[0]
+        
+        # Force clipping (do this outside the gradient context)
+        grad_norm = torch.norm(grad, dim=-1, keepdim=True)
+        scale = torch.clamp(force_cap / (grad_norm + 1e-8), max=1.0)
+        grad = grad * scale
+        
+        # Update WITHOUT gradients - create new tensor
+        with torch.no_grad():
+            noise = torch.sqrt(torch.tensor(2 * step_size, device=R_grad.device)) * torch.randn_like(R_grad)
+            R_new = R_grad - step_size * grad + noise
+        
+        # Replace R with the new tensor
+        R = R_new
+        
+        if log_every and step % log_every == 0:
+            trajectories.append(R.clone())
+    
+    # Always add final frame
+    trajectories.append(R.clone())
+    
+    return trajectories
+
+
 class PyTorchSimulator(Simulator):
     """Overdamped Langevin simulator using PyTorch autograd.
 
@@ -36,10 +96,17 @@ class PyTorchSimulator(Simulator):
 
     def _compute_forces(self, R: torch.Tensor, seq: torch.Tensor) -> torch.Tensor:
         """Compute forces = -grad(E)."""
-        R.requires_grad_(True)
+        # Ensure R requires gradients
+        if not R.requires_grad:
+            R = R.detach().requires_grad_(True)
+            
         E = self.model(R, seq).sum()
+        
+        # Debug check for gradient flow
+        if not E.requires_grad:
+            logger.warning("E.requires_grad is False in _compute_forces")
+            
         F = -torch.autograd.grad(E, R, create_graph=False)[0]
-        R.requires_grad_(False)
         return F
 
     def _clip_forces(self, F: torch.Tensor) -> tuple:
@@ -63,6 +130,7 @@ class PyTorchSimulator(Simulator):
         n_steps: int,
         step_size: float,
         log_every: int = 50,
+        silent_progress: bool = False,
         **kwargs,
     ) -> SimulationResult:
         """Run Langevin dynamics with NaN detection.
@@ -103,7 +171,7 @@ class PyTorchSimulator(Simulator):
 
         completed_steps = n_steps
         for step in range(1, n_steps + 1):
-            # Compute forces
+            # Compute forces (with gradients enabled)
             F = self._compute_forces(R, seq)
 
             # ===== NAN CHECK =====
@@ -129,9 +197,10 @@ class PyTorchSimulator(Simulator):
             else:
                 clip_frac = 0.0
 
-            # Update positions
-            noise = noise_scale * torch.randn_like(R)
-            R = R + step_size * F + noise
+            # Update positions (no gradients needed for update)
+            with torch.no_grad():
+                noise = noise_scale * torch.randn_like(R)
+                R = R + step_size * F + noise
 
             # Check positions for NaN
             if torch.isnan(R).any():
@@ -150,8 +219,8 @@ class PyTorchSimulator(Simulator):
                 **kwargs,
             )
 
-            # Log progress
-            if step % log_every == 0:
+            # Log progress (suppressed when an observer owns the line)
+            if not silent_progress and step % log_every == 0:
                 with torch.no_grad():
                     E = self.model(R, seq).mean().item()
                     max_force = safe_norm(F, dim=-1).max().item()

@@ -1,0 +1,14 @@
+{
+  "format_version": "1.0",
+  "quantity": "-log(g(r)) repulsive wall (monotone, nonnegative)",
+  "units": "dimensionless; scaled by lambda_rep in the model",
+  "r_star_A": 5.57025,
+  "min_value": 0.0,
+  "max_value": 27.644100372897604,
+  "min_seq_sep_excluded": 3,
+  "max_dist_A": 15.0,
+  "tail_window_A": [
+    12.0,
+    15.0
+  ]
+}

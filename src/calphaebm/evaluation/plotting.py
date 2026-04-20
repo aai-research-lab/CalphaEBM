@@ -12,6 +12,7 @@ def plot_rg(
     rg_ref: float,
     out_path: Optional[Path] = None,
     dpi: int = 200,
+    title: Optional[str] = None,
 ) -> plt.Figure:
     """Plot radius of gyration vs frame."""
     fig, ax = plt.subplots(figsize=(10, 6))
@@ -22,7 +23,7 @@ def plot_rg(
 
     ax.set_xlabel("Frame", fontsize=12)
     ax.set_ylabel("Rg (Å)", fontsize=12)
-    ax.set_title("Radius of Gyration", fontsize=14)
+    ax.set_title(title or "Radius of Gyration", fontsize=14)
     ax.legend()
     ax.grid(True, alpha=0.3)
 
@@ -39,6 +40,7 @@ def plot_delta_rg(
     delta_rg_series: np.ndarray,
     out_path: Optional[Path] = None,
     dpi: int = 200,
+    title: Optional[str] = None,
 ) -> plt.Figure:
     """Plot ΔRg vs frame."""
     fig, ax = plt.subplots(figsize=(10, 6))
@@ -49,7 +51,7 @@ def plot_delta_rg(
 
     ax.set_xlabel("Frame", fontsize=12)
     ax.set_ylabel("ΔRg (Å)", fontsize=12)
-    ax.set_title("ΔRg vs Reference", fontsize=14)
+    ax.set_title(title or "ΔRg vs Reference", fontsize=14)
     ax.grid(True, alpha=0.3)
 
     plt.tight_layout()
@@ -65,6 +67,7 @@ def plot_rmsd(
     rmsd_series: np.ndarray,
     out_path: Optional[Path] = None,
     dpi: int = 200,
+    title: Optional[str] = None,
 ) -> plt.Figure:
     """Plot RMSD vs frame."""
     fig, ax = plt.subplots(figsize=(10, 6))
@@ -74,7 +77,33 @@ def plot_rmsd(
 
     ax.set_xlabel("Frame", fontsize=12)
     ax.set_ylabel("RMSD (Å)", fontsize=12)
-    ax.set_title("Cα RMSD to Reference", fontsize=14)
+    ax.set_title(title or "Cα RMSD to Reference", fontsize=14)
+    ax.grid(True, alpha=0.3)
+
+    plt.tight_layout()
+
+    if out_path:
+        plt.savefig(out_path, dpi=dpi)
+        plt.close()
+
+    return fig
+
+
+def plot_drmsd(
+    drmsd_series: np.ndarray,
+    out_path: Optional[Path] = None,
+    dpi: int = 200,
+    title: Optional[str] = None,
+) -> plt.Figure:
+    """Plot dRMSD vs frame."""
+    fig, ax = plt.subplots(figsize=(10, 6))
+
+    x = np.arange(len(drmsd_series))
+    ax.plot(x, drmsd_series, "purple", linewidth=1.5)
+
+    ax.set_xlabel("Frame", fontsize=12)
+    ax.set_ylabel("dRMSD (Å)", fontsize=12)
+    ax.set_title(title or "Pairwise Distance RMSD", fontsize=14)
     ax.grid(True, alpha=0.3)
 
     plt.tight_layout()
@@ -92,6 +121,7 @@ def plot_q(
     color: str = "g",
     out_path: Optional[Path] = None,
     dpi: int = 200,
+    subtitle: Optional[str] = None,
 ) -> plt.Figure:
     """Plot Q vs frame."""
     fig, ax = plt.subplots(figsize=(10, 6))
@@ -102,7 +132,8 @@ def plot_q(
 
     ax.set_xlabel("Frame", fontsize=12)
     ax.set_ylabel("Q", fontsize=12)
-    ax.set_title(title, fontsize=14)
+    full_title = title if subtitle is None else f"{title} {subtitle}"
+    ax.set_title(full_title, fontsize=14)
     ax.grid(True, alpha=0.3)
 
     plt.tight_layout()
@@ -119,6 +150,7 @@ def plot_q_comparison(
     q_smooth_series: np.ndarray,
     out_path: Optional[Path] = None,
     dpi: int = 200,
+    title: Optional[str] = None,
 ) -> plt.Figure:
     """Plot Q_hard and Q_smooth together."""
     fig, ax = plt.subplots(figsize=(10, 6))
@@ -130,7 +162,7 @@ def plot_q_comparison(
 
     ax.set_xlabel("Frame", fontsize=12)
     ax.set_ylabel("Q", fontsize=12)
-    ax.set_title("Native Contact Fraction", fontsize=14)
+    ax.set_title(title or "Native Contact Fraction", fontsize=14)
     ax.legend()
     ax.grid(True, alpha=0.3)
 
@@ -149,6 +181,7 @@ def plot_min_distance(
     clash_threshold: float = 3.8,
     out_path: Optional[Path] = None,
     dpi: int = 200,
+    title: Optional[str] = None,
 ) -> plt.Figure:
     """Plot min and median nonbonded distances."""
     fig, ax = plt.subplots(figsize=(10, 6))
@@ -166,7 +199,7 @@ def plot_min_distance(
 
     ax.set_xlabel("Frame", fontsize=12)
     ax.set_ylabel("Distance (Å)", fontsize=12)
-    ax.set_title("Nonbonded Distances", fontsize=14)
+    ax.set_title(title or "Nonbonded Distances", fontsize=14)
     ax.legend()
     ax.grid(True, alpha=0.3)
 
@@ -223,53 +256,112 @@ def plot_all(
     report: "EvaluationReport",
     out_dir: Path,
     dpi: int = 200,
+    burnin_steps: int = 0,
 ) -> None:
-    """Generate all plots for an evaluation report."""
+    """Generate all plots for an evaluation report, optionally after burn-in steps."""
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    # Rg plots
-    plot_rg(report.rg_series, report.rg_ref, out_dir / "rg.png", dpi)
-    plot_delta_rg(report.delta_rg_series, out_dir / "delta_rg.png", dpi)
+    # Get metadata
+    n_frames = len(report.rmsd_series)
+    save_every = report.metadata.get('save_every', 10000)
 
-    # RMSD
-    plot_rmsd(report.rmsd_series, out_dir / "rmsd.png", dpi)
+    # Convert steps to frames
+    if burnin_steps > 0 and save_every > 0:
+        burnin_frames = burnin_steps // save_every
+    else:
+        burnin_frames = 0
 
-    # Q plots
+    # Apply burn-in if specified
+    if burnin_frames > 0 and burnin_frames < n_frames:
+        plot_slice = slice(burnin_frames, None)
+        burnin_note = f"(after {burnin_steps} steps burn-in)"
+    else:
+        plot_slice = slice(None)
+        burnin_note = ""
+
+    # Rg plots with burn-in
+    plot_rg(
+        report.rg_series[plot_slice],
+        report.rg_ref,
+        out_dir / "rg.png",
+        dpi,
+        title=f"Radius of Gyration {burnin_note}".strip(),
+    )
+
+    plot_delta_rg(
+        report.delta_rg_series[plot_slice],
+        out_dir / "delta_rg.png",
+        dpi,
+        title=f"ΔRg vs Reference {burnin_note}".strip(),
+    )
+
+    # RMSD and dRMSD with burn-in
+    plot_rmsd(
+        report.rmsd_series[plot_slice],
+        out_dir / "rmsd.png",
+        dpi,
+        title=f"Cα RMSD to Reference {burnin_note}".strip(),
+    )
+
+    if hasattr(report, "drmsd_series") and report.drmsd_series.size > 0:
+        plot_drmsd(
+            report.drmsd_series[plot_slice],
+            out_dir / "drmsd.png",
+            dpi,
+            title=f"Pairwise Distance RMSD {burnin_note}".strip(),
+        )
+
+    # Q plots with burn-in
     if report.q_hard_series.size > 0:
-        plot_q(report.q_hard_series, "Q_hard", "b", out_dir / "q_hard.png", dpi)
+        plot_q(
+            report.q_hard_series[plot_slice],
+            "Q_hard",
+            "b",
+            out_dir / "q_hard.png",
+            dpi,
+            subtitle=burnin_note,
+        )
 
     if report.q_smooth_series.size > 0:
-        plot_q(report.q_smooth_series, "Q_smooth", "r", out_dir / "q_smooth.png", dpi)
+        plot_q(
+            report.q_smooth_series[plot_slice],
+            "Q_smooth",
+            "r",
+            out_dir / "q_smooth.png",
+            dpi,
+            subtitle=burnin_note,
+        )
 
     if report.q_hard_series.size > 0 and report.q_smooth_series.size > 0:
         plot_q_comparison(
-            report.q_hard_series,
-            report.q_smooth_series,
+            report.q_hard_series[plot_slice],
+            report.q_smooth_series[plot_slice],
             out_dir / "q_comparison.png",
             dpi,
+            title=f"Native Contact Fraction {burnin_note}".strip(),
         )
 
-    # ===== FIXED MIN DISTANCE PLOTTING =====
-    # Now using both min and median series from the report
+    # Min distance plots with burn-in
     if hasattr(report, "median_distances_series") and report.median_distances_series.size > 0:
         plot_min_distance(
-            report.min_distances_series,
-            report.median_distances_series,
+            report.min_distances_series[plot_slice],
+            report.median_distances_series[plot_slice],
             clash_threshold=3.8,
             out_path=out_dir / "min_distance.png",
             dpi=dpi,
+            title=f"Nonbonded Distances {burnin_note}".strip(),
         )
     else:
         # Fallback for backward compatibility
         plot_min_distance(
-            report.min_distances_series,
-            report.min_distances_series,
+            report.min_distances_series[plot_slice],
+            report.min_distances_series[plot_slice],
             clash_threshold=3.8,
             out_path=out_dir / "min_distance.png",
             dpi=dpi,
+            title=f"Nonbonded Distances {burnin_note}".strip(),
         )
-    # ======================================
 
-    # RDF
+    # RDF (already averaged over all frames - doesn't need burn-in)
     plot_rdf(report.rdf_centers, report.rdf_counts, report.rdf_norm, out_dir, dpi)

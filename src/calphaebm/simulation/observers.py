@@ -76,36 +76,48 @@ class MinDistanceObserver(Observer):
         self.median_distances = []
 
     def _min_nonbonded(self, R: torch.Tensor) -> tuple:
-        """Compute min and median nonbonded distances."""
+        """Compute min and median nonbonded distances.
+
+        FIX: replaced roll()-based diagonal masking (which wraps around and
+        incorrectly masks distant pairs in short sequences) with an explicit
+        sequence-separation mask using index arithmetic.
+        """
         B, L, _ = R.shape
-        D = pairwise_distances(R)
+        D = pairwise_distances(R)  # (B, L, L)
 
-        # Mask bonded pairs
-        for k in range(-self.exclude, self.exclude + 1):
-            D = D.masked_fill(
-                torch.eye(L, device=R.device).unsqueeze(0).roll(k, dims=-1).bool(),
-                float("inf"),
-            )
+        # Build correct exclusion mask: True where |i-j| > exclude
+        idx = torch.arange(L, device=R.device)
+        sep = (idx[:, None] - idx[None, :]).abs()  # (L, L)
+        allowed = (sep > self.exclude)              # (L, L) — no wrap-around
+        # Upper triangle only (count each pair once)
+        triu = torch.triu(
+            torch.ones(L, L, dtype=torch.bool, device=R.device), diagonal=1
+        )
+        allowed = allowed & triu  # (L, L)
 
-        min_vals = D.amin(dim=(1, 2))
-        # Get all non-inf values for median
-        mask = D != float("inf")
+        min_vals = []
         med_vals = []
         for b in range(B):
-            vals = D[b][mask[b]]
-            if len(vals) > 0:
+            vals = D[b][allowed]
+            if vals.numel() > 0:
+                min_vals.append(vals.min().item())
                 med_vals.append(vals.median().item())
             else:
+                min_vals.append(float("inf"))
                 med_vals.append(float("inf"))
 
-        return min_vals, torch.tensor(med_vals, device=R.device)
+        return (
+            torch.tensor(min_vals, device=R.device),
+            torch.tensor(med_vals, device=R.device),
+        )
 
     def update(self, step: int, R: torch.Tensor, **kwargs):
         if step % self.log_every == 0:
-            min_vals, med_vals = self._min_nonbonded(R)
+            with torch.no_grad():
+                min_vals, med_vals = self._min_nonbonded(R)
 
             self.steps.append(step)
-            self.min_distances.append(min_vals.median().item())
+            self.min_distances.append(min_vals.min().item())
             self.median_distances.append(med_vals.median().item())
 
     def get_results(self) -> Dict[str, Any]:

@@ -1,9 +1,23 @@
-"""Neighbor list utilities for efficient nonbonded calculations."""
+"""Neighbor list utilities for efficient nonbonded calculations.
+
+This module is kept for backward compatibility.
+
+Preferred implementation lives in:
+    calphaebm.geometry.pairs.topk_nonbonded_pairs
+
+We keep:
+- pairwise_distances (used broadly, simple and useful)
+- topk_nonbonded_pairs wrapper (legacy signature: K/exclude/max_dist)
+- NeighborList helper
+"""
+
+from __future__ import annotations
 
 from typing import Optional, Tuple
 
-import numpy as np
 import torch
+
+from calphaebm.geometry.pairs import topk_nonbonded_pairs as _topk_pairs
 
 
 def pairwise_distances(R: torch.Tensor) -> torch.Tensor:
@@ -22,43 +36,21 @@ def topk_nonbonded_pairs(
     R: torch.Tensor,
     K: int = 64,
     exclude: int = 2,
+    max_dist: Optional[float] = None,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
-    """Find K nearest nonbonded neighbors for each residue.
+    """Legacy wrapper for top-k nearest nonbonded neighbors for each residue.
 
-    Args:
-        R: (B, L, 3) coordinates.
-        K: Number of neighbors to return.
-        exclude: Sequence separation cutoff (|i-j| <= exclude excluded).
+    Legacy signature (utils.neighbors):
+        topk_nonbonded_pairs(R, K=..., exclude=..., max_dist=...)
+
+    Canonical signature (geometry.pairs):
+        topk_nonbonded_pairs(R, k=..., exclude=..., cutoff=...)
 
     Returns:
-        (distances, indices):
-            distances: (B, L, K) distances to K nearest nonbonded neighbors.
-            indices: (B, L, K) indices of those neighbors.
+        distances: (B, L, K)
+        indices:   (B, L, K)
     """
-    B, L, _ = R.shape
-    D = pairwise_distances(R)  # (B, L, L)
-
-    # Create sequence separation mask
-    idx = torch.arange(L, device=R.device)
-    ii = idx.view(1, L, 1)
-    jj = idx.view(1, 1, L)
-    mask = (torch.abs(ii - jj) <= exclude)
-
-    # Mask out excluded pairs
-    D_masked = D.masked_fill(mask, float("inf"))
-
-    # Get K smallest (excluding inf)
-    K_actual = min(K, L - exclude - 1)
-    distances, indices = torch.topk(D_masked, k=K_actual, dim=-1, largest=False)
-
-    # If K_actual < K, pad with zeros
-    if K_actual < K:
-        pad_d = torch.full((B, L, K - K_actual), float("inf"), device=R.device)
-        pad_i = torch.zeros((B, L, K - K_actual), dtype=torch.long, device=R.device)
-        distances = torch.cat([distances, pad_d], dim=-1)
-        indices = torch.cat([indices, pad_i], dim=-1)
-
-    return distances, indices
+    return _topk_pairs(R, k=int(K), exclude=int(exclude), cutoff=max_dist)
 
 
 class NeighborList:
@@ -70,9 +62,9 @@ class NeighborList:
         skin: float = 2.0,
         max_neighbors: int = 64,
     ):
-        self.cutoff = cutoff
-        self.skin = skin
-        self.max_neighbors = max_neighbors
+        self.cutoff = float(cutoff)
+        self.skin = float(skin)
+        self.max_neighbors = int(max_neighbors)
         self.pairs = None
         self.last_positions = None
 
@@ -100,7 +92,7 @@ class NeighborList:
 
         if needs_update or self.pairs is None:
             self.pairs = topk_nonbonded_pairs(
-                R, K=self.max_neighbors, exclude=exclude
+                R, K=self.max_neighbors, exclude=exclude, max_dist=self.cutoff
             )
             self.last_positions = R.clone()
 

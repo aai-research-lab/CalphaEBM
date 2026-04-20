@@ -1,5 +1,7 @@
 # src/calphaebm/utils/constants.py
 
+# src/calphaebm/utils/constants.py
+
 """Central constants used across CalphaEBM.
 
 All values are defaults that can be overridden by configuration.
@@ -13,10 +15,29 @@ CA_CA_BOND_LENGTH = 3.8  # Approximate Cα-Cα distance in Å
 EMB_DIM = 16  # Amino acid embedding dimension
 
 # Training defaults
-DSM_SIGMA = 0.25  # Noise sigma for denoising score matching (Å)
 LEARNING_RATE = 3e-4
 TRAIN_STEPS = 50000
 BATCH_SIZE = 32
+
+# IC training noise (run19+) — noise is in radians, not Å
+# DSM_SIGMA (Å, Cartesian) removed: bond length is now a geometric identity,
+# not a variable. Cartesian noise sigma is meaningless in IC simulation.
+DSM_SIGMA_THETA = 0.05   # Noise sigma for bond angle θ (radians)
+DSM_SIGMA_PHI   = 0.10   # Noise sigma for torsion angle φ (radians)
+
+# Local energy term constants (from statistical analysis)
+# BOND_SPRING removed: Cα-Cα bond length is exactly 3.8 Å by NeRF construction.
+# A harmonic spring on a fixed constraint is undefined and was the root cause
+# of the run18 local energy runaway. See geometry/reconstruct.py.
+THETA_PERSISTENCE_SPRING = 20.0  # Spring constant for θ-θ coupling
+THETA_PHI_SCALE = 0.01  # Scale factor for tabulated (θ,φ) potential
+
+# Data paths for tabulated potentials
+THETA_PHI_GRID_PATH = "analysis/backbone_geometry/data/figure_3a_histogram.npy"
+THETA_PHI_XEDGES_PATH = "analysis/backbone_geometry/data/figure_3a_xedges.npy"
+THETA_PHI_YEDGES_PATH = "analysis/backbone_geometry/data/figure_3a_yedges.npy"
+DELTA_PHI_GRID_PATH = "analysis/backbone_geometry/data/delta_phi_energy.npy"
+DELTA_PHI_CENTERS_PATH = "analysis/backbone_geometry/data/delta_phi_centers.npy"
 
 # Simulation defaults
 BETA = 1.0  # Inverse temperature (kBT = 1 units)

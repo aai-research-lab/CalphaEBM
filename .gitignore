@@ -1,56 +1,115 @@
 # Python
 __pycache__/
 *.py[cod]
-*$py.class
-*.so
-.Python
-env/
-venv/
-.env
-.venv
-pip-log.txt
-pip-delete-this-directory.txt
-.pytest_cache/
-.coverage
-htmlcov/
-.tox/
-.mypy_cache/
-.dmypy.json
-dmypy.json
 *.egg-info/
+*.egg
 dist/
 build/
+*.so
 
-# PyTorch
-*.pt
-*.pth
-checkpoints/
-checkpoints_energy/
-runs/
+# Environments
+ebm_env/
+calphaebm_env/
+.venv/
+venv/
+
+# Data caches (large, from PDB)
 pdb_cache/
+processed_cache/
 
-# IDE
-.vscode/
-.idea/
+# Checkpoints — only run9 round checkpoints are committed explicitly
+checkpoints/run[0-8]*/
+checkpoints/run[1-9][0-9]*/
+checkpoints/mala_*/
+checkpoints/physics_guided/
+checkpoints/prod_run/
+checkpoints/run9/run9/full-stage/full_step*/
+checkpoints/run9/run9/eval_results/
+
+# Training logs and eval results
+logs/
+runs/
+results/
+eval_results/
+eval_results_*/
+
+# Analysis outputs (plots, summaries — not the data/ dirs)
+analysis/*.txt
+analysis/**/*.png
+analysis/**/*.pdf
+analysis/**/summary.json
+analysis/coordination_analysis_v5_backup/
+analysis/hbond_analysis/
+analysis/packing_analysis_OBSOLETE/
+analysis/svd_analysis/
+analysis/coordination_analysis/rho_per_chain.tsv
+analysis/secondary_analysis/basin_summary.json
+
+# Tarballs and backups
+*.tar.gz
+*.bak
+archive/
+
+# Calibration outputs
+calibration_run*.json
+lambdas_prod_final.json
+geometry_feature_calibration.json
+
+# One-off scripts and data files
+patch_cli.py
+reproduce_oldfield_figures.py
+candidate_*.txt
+candidate_*.json
+missing_cifs.txt
+test_entries.txt
+train_hq_all.txt
+train_hq_mono.txt
+val_hq_all.txt
+val_hq_mono.txt
+train_hq.meta.json
+
+# Figures
+figures/
+angle_analysis/
+bond_analysis/
+basin_results/
+
+# OS files
+.DS_Store
+._*
 *.swp
-*.swo
 *~
 
-# Jupyter
-.ipynb_checkpoints/
-*.ipynb
+# Empty config dirs
+configs/
 
-# Data
-data/pdb/*.cif
-data/pdb/*.pdb
-data/lists/*.txt
+# Old one-off scripts (not part of the project)
+scripts/analyze_*.py
+scripts/basin_grid.sh
+scripts/calibrate_*.py
+scripts/check_*.py
+scripts/compute_*.py
+scripts/debug_*.py
+scripts/diag_*.sh
+scripts/diag_*.py
+scripts/diagnostics/
+scripts/eval/
+scripts/filter_*.py
+scripts/generate_*.py
+scripts/investigate_*.py
+scripts/monitor.py
+scripts/patch_*.py
+scripts/quick_*.py
+scripts/quick_*.sh
+scripts/rename_*.sh
+scripts/run[0-9]*.sh
+scripts/run_training.sh
+scripts/scale_*.py
+scripts/test_*.py
+scripts/train_with_validation.py
+scripts/verify_*.py
+scripts/visualize_*.py
 
-# Docs
-site/
-
-# OS
-.DS_Store
-Thumbs.db
-# local artifacts / data
-*.json
-*.txt
+# Large intermediate analysis data (not needed for model loading)
+analysis/backbone_geometry/data/*.csv
+analysis/secondary_analysis/data/angle_cache.npz

@@ -1,27 +1,30 @@
 # src/calphaebm/models/__init__.py
 
-"""Neural network modules for each energy term."""
+from __future__ import annotations
 
-from calphaebm.models.cross_terms import SecondaryStructureEnergy
+from calphaebm.models.secondary import SecondaryStructureEnergy
 from calphaebm.models.embeddings import AAEmbedding
-from calphaebm.models.energy import TotalEnergy
-from calphaebm.models.local_terms import LocalEnergy
+from calphaebm.models.energy import TotalEnergy, create_total_energy
+from calphaebm.models.local import LocalEnergy
 from calphaebm.models.mlp import MLP
 from calphaebm.models.packing import PackingEnergy
-from calphaebm.models.repulsion import (
-    RepulsionEnergy,
-    RepulsionEnergyFixed,
-    RepulsionEnergyLearnedRadius,
-)
+from calphaebm.models.repulsion import RepulsionEnergy
+
+# Backward-compatibility: older code that imports cross_terms / local_terms
+try:
+    from calphaebm.models.packing import SimplePackingEnergy
+except ImportError:
+    SimplePackingEnergy = PackingEnergy  # type: ignore
+
 
 __all__ = [
     "AAEmbedding",
-    "MLP",
     "LocalEnergy",
     "RepulsionEnergy",
-    "RepulsionEnergyFixed",
-    "RepulsionEnergyLearnedRadius",
     "SecondaryStructureEnergy",
     "PackingEnergy",
+    "SimplePackingEnergy",
     "TotalEnergy",
+    "create_total_energy",
+    "MLP",
 ]

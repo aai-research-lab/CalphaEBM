@@ -1,180 +1,295 @@
-# src/calphaebm/models/repulsion.py
+"""
+Data-driven repulsion energy from PDB analysis with differentiable interpolation.
 
-"""Repulsion energy term for excluded volume."""
+Nonbonded exclusion:
+  We exclude pairs with sequence separation |i-j| <= exclude (default exclude=3),
+  i.e. we include only |i-j| > 3. This matches the nonbonded definition used by
+  the packing term and avoids double-counting near-local geometry already
+  constrained by bond/angle/torsion terms.
 
-import math
+lambda_rep:
+  Trainable internal scale parameter (nn.Parameter, init ~0.172 from force calibration).
+  This is the only trainable handle on repulsion magnitude because the energy table
+  is a fixed PDB-derived buffer. The outer gate in TotalEnergy is frozen at 1.0.
 
+Normalization (Option R1: per-residue):
+  If normalize_by_length=True, the returned energy is normalized by L:
+      E_rep = (1/L) * lambda_rep * sum_{i,k} E(r_{i,k}) * sw(r_{i,k})
+  This makes the repulsion term consistent with other internally normalized terms.
+  IMPORTANT: If you enable this, diagnostics should NOT divide repulsion by L again.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Optional
+
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from calphaebm.models.embeddings import AAEmbedding
-from calphaebm.utils.neighbors import topk_nonbonded_pairs
+from calphaebm.geometry.pairs import topk_nonbonded_pairs
 from calphaebm.utils.smooth import smooth_switch
+from calphaebm.utils.logging import get_logger
+
+logger = get_logger()
 
 
-class RepulsionEnergyFixed(nn.Module):
-    """Fixed excluded-volume repulsion (analytic wall).
+class RepulsionEnergy(nn.Module):
+    """Data-driven repulsion energy from PDB analysis with differentiable interpolation.
 
-    Energy: E = wall_scale * softplus((r0 - r) / delta) * switch(r)
-
-    Args:
-        K: Number of nearest neighbors.
-        exclude: Sequence separation cutoff.
-        r_on: Switching onset distance (Å).
-        r_cut: Cutoff distance (Å).
-        r0: Repulsion radius (Å).
-        delta: Softness parameter.
-        wall_scale: Repulsion strength.
+    Notes:
+      - lambda_rep is a trainable nn.Parameter (init from force calibration ~0.172).
+        It is the sole internal trainable scale for repulsion because the energy table
+        is fixed (non-trainable PDB-derived buffer). Outer gate is frozen at 1.0.
+      - Optional internal per-residue normalization (Option R1) via normalize_by_length.
     """
 
     def __init__(
         self,
+        data_dir: str = "analysis/repulsion_analysis/data",
         K: int = 64,
-        exclude: int = 2,
+        exclude: int = 3,  # include only |i-j| > exclude
         r_on: float = 8.0,
         r_cut: float = 10.0,
-        r0: float = 4.0,
-        delta: float = 0.2,
-        wall_scale: float = 10.0,
+        # Calibrated internal scale: init ~0.172 (= 1/5.8 from force balance measurement)
+        init_lambda_rep: float = 0.172,
+        # NEW: internal normalization (Option R1)
+        normalize_by_length: bool = True,
+        # Numerical stability
+        r_min_safe: float = 3.8,
+        softplus_beta: float = 20.0,
     ):
         super().__init__()
-        self.K = K
-        self.exclude = exclude
+
+        # Trainable internal scale (the only trainable handle since the table is fixed)
+        self._lambda_rep_raw = nn.Parameter(
+            torch.tensor(float(init_lambda_rep), dtype=torch.float32)
+        )
+
+        self.K = int(K)
+        self.exclude = int(exclude)
         self.r_on = float(r_on)
         self.r_cut = float(r_cut)
-        self.r0 = float(r0)
-        self.delta = float(delta)
-        self.wall_scale = float(wall_scale)
+        self.normalize_by_length = bool(normalize_by_length)
 
-    def forward(self, R: torch.Tensor, seq: torch.Tensor | None = None) -> torch.Tensor:
-        """Compute repulsion energy.
+        self.r_min_safe = float(r_min_safe)
+        self.softplus_beta = float(softplus_beta)
 
-        Args:
-            R: (B, L, 3) coordinates.
-            seq: Ignored, for API compatibility.
+        if self.K <= 0:
+            raise ValueError(f"K must be positive, got {self.K}")
+        if self.exclude < 0:
+            raise ValueError(f"exclude must be >= 0, got {self.exclude}")
+        if not (self.r_on < self.r_cut):
+            raise ValueError(f"Require r_on < r_cut, got r_on={self.r_on}, r_cut={self.r_cut}")
+        if self.r_min_safe <= 0.0:
+            raise ValueError(f"r_min_safe must be > 0, got {self.r_min_safe}")
+        if self.softplus_beta <= 0.0:
+            raise ValueError(f"softplus_beta must be > 0, got {self.softplus_beta}")
 
-        Returns:
-            (B,) Energy per batch element.
-        """
-        r, _ = topk_nonbonded_pairs(R, K=self.K, exclude=self.exclude)
-        sw = smooth_switch(r, self.r_on, self.r_cut)
-        rep = self.wall_scale * F.softplus((self.r0 - r) / (self.delta + 1e-12))
-        return (rep * sw).sum(dim=(1, 2))
+        data_path = Path(data_dir)
 
+        # Try multiple possible filenames for centers
+        center_candidates = [
+            data_path / "repulsive_wall_centers.npy",  # preferred naming
+            data_path / "repulsive_wall_r_A.npy",      # alternative naming (your logs show this)
+        ]
 
-class RepulsionEnergyLearnedRadius(nn.Module):
-    """Learned residue-dependent repulsion radius.
+        centers_path: Optional[Path] = None
+        for candidate in center_candidates:
+            if candidate.exists():
+                centers_path = candidate
+                logger.debug(f"Found repulsion centers: {candidate.name}")
+                break
 
-    Each residue type learns an effective radius ρ(s) in [ρ_min, ρ_max].
-    Pair radius is r0_ij = ρ(s_i) + ρ(s_j).
-
-    Energy: E = wall_scale * softplus((r0_ij - r_ij) / delta) * switch(r_ij)
-
-    Args:
-        num_aa: Number of amino acid types.
-        emb_dim: Embedding dimension.
-        K: Number of nearest neighbors.
-        exclude: Sequence separation cutoff.
-        r_on: Switching onset distance.
-        r_cut: Cutoff distance.
-        delta: Softness parameter.
-        wall_scale: Repulsion strength.
-        rho_min: Minimum effective radius.
-        rho_max: Maximum effective radius.
-        rho_base: Initial radius for all residues.
-    """
-
-    def __init__(
-        self,
-        num_aa: int = 20,
-        emb_dim: int = 16,
-        K: int = 64,
-        exclude: int = 2,
-        r_on: float = 8.0,
-        r_cut: float = 10.0,
-        delta: float = 0.3,
-        wall_scale: float = 10.0,
-        rho_min: float = 1.6,
-        rho_max: float = 2.8,
-        rho_base: float = 2.0,
-    ):
-        super().__init__()
-        self.K = K
-        self.exclude = exclude
-        self.r_on = float(r_on)
-        self.r_cut = float(r_cut)
-        self.delta = float(delta)
-        self.wall_scale = float(wall_scale)
-
-        self.rho_min = float(rho_min)
-        self.rho_max = float(rho_max)
-        self.rho_base = float(rho_base)
-
-        self.emb = AAEmbedding(num_aa=num_aa, dim=emb_dim)
-        self.size_head = nn.Linear(emb_dim, 1)
-
-        # Initialize to rho_base
-        with torch.no_grad():
-            self.size_head.weight.zero_()
-            frac = (self.rho_base - self.rho_min) / max(
-                1e-6, (self.rho_max - self.rho_min)
+        if centers_path is None:
+            raise FileNotFoundError(
+                f"No repulsion centers file found in {data_dir}. "
+                f"Tried: {[c.name for c in center_candidates]}"
             )
-            frac = float(min(0.999, max(0.001, frac)))
-            bias = math.log(frac / (1.0 - frac))
-            self.size_head.bias.fill_(bias)
 
-    def rho(self, seq: torch.Tensor) -> torch.Tensor:
-        """Compute per-residue radii.
+        energy_path = data_path / "repulsive_wall_energy.npy"
+        if not energy_path.exists():
+            raise FileNotFoundError(f"Repulsion energy file not found: {energy_path}")
+
+        centers = np.load(centers_path).astype(np.float32).reshape(-1)  # grid points
+        energy = np.load(energy_path).astype(np.float32).reshape(-1)    # energy values
+
+        if centers.ndim != 1 or energy.ndim != 1:
+            raise ValueError("repulsive wall centers/energy must be 1D arrays after reshape(-1)")
+        if centers.shape[0] != energy.shape[0]:
+            raise ValueError(
+                f"centers and energy must have same length, got {centers.shape[0]} vs {energy.shape[0]}"
+            )
+        if centers.shape[0] < 2:
+            raise ValueError(f"centers must have >=2 points, got {centers.shape[0]}")
+        if not np.all(np.isfinite(centers)) or not np.all(np.isfinite(energy)):
+            raise ValueError("repulsive wall arrays contain non-finite values")
+        if not np.all(np.diff(centers) > 0):
+            raise ValueError("repulsive wall centers must be strictly increasing")
+
+        # Register as buffers (not parameters)
+        self.register_buffer("r_centers", torch.tensor(centers, dtype=torch.float32))
+        self.register_buffer("energy_table", torch.tensor(energy, dtype=torch.float32))
+
+        # Grid metadata
+        r_min = float(centers[0])
+        r_max = float(centers[-1])
+        n_points = int(centers.shape[0])
+        dr = (r_max - r_min) / float(n_points - 1)
+
+        self.register_buffer("r_min", torch.tensor(r_min, dtype=torch.float32))
+        self.register_buffer("r_max", torch.tensor(r_max, dtype=torch.float32))
+        self.register_buffer("dr", torch.tensor(dr, dtype=torch.float32))
+        self.register_buffer("n_points", torch.tensor(n_points, dtype=torch.long))
+        self.register_buffer("r_star", torch.tensor(r_max, dtype=torch.float32))
+
+        # Summary for consolidated init log
+        self._init_summary = {
+            "total_params": 1,  # just lambda_rep
+            "n_grid": n_points,
+            "r_range": (r_min, r_max),
+            "init_lambda": init_lambda_rep,
+        }
+        logger.debug("RepulsionEnergy: %d grid points [%.1f, %.1f]Å, λ_init=%.4f",
+                     n_points, r_min, r_max, init_lambda_rep)
+
+    @property
+    def lambda_rep(self) -> torch.Tensor:
+        """Positive internal scale for repulsion energy (trainable)."""
+        return torch.nn.functional.softplus(self._lambda_rep_raw) + 1e-6
+
+    def _lookup_energy_differentiable(self, r: torch.Tensor) -> torch.Tensor:
+        """Differentiable linear interpolation with robust boundary handling.
 
         Args:
-            seq: (B, L) amino acid indices.
+            r: distances in Å, shape (...).
 
         Returns:
-            (B, L) radii in Å.
+            energies with same shape as r.
         """
-        e = self.emb(seq)
-        x = self.size_head(e).squeeze(-1)
-        frac = torch.sigmoid(x)
-        return self.rho_min + (self.rho_max - self.rho_min) * frac
+        orig_shape = r.shape
+        r_flat = r.reshape(-1)
 
-    def pair_r0(self, seq_i: torch.Tensor, seq_j: torch.Tensor) -> torch.Tensor:
-        """Compute pair radii.
+        # Smoothly push distances above r_min_safe to avoid extreme gradients / NaNs
+        # r_eff = r_min_safe + softplus(r - r_min_safe)
+        r_min_safe = self.r_min_safe
+        beta = self.softplus_beta
+        r_eff = r_min_safe + F.softplus(r_flat - r_min_safe, beta=beta)
+
+        r_min = float(self.r_min.item())
+        r_max = float(self.r_max.item())
+        dr = float(self.dr.item())
+        n = int(self.n_points.item())
+        energy = self.energy_table  # (n,)
+
+        energy_flat = torch.zeros_like(r_flat)
+
+        in_range = (r_eff >= r_min) & (r_eff <= r_max)
+        if in_range.any():
+            r_in = r_eff[in_range]
+
+            # u in [0, n-1]
+            u = (r_in - r_min) / dr
+
+            # i0 in [0, n-2]
+            i0 = torch.floor(u).long()
+            i0 = torch.clamp(i0, 0, n - 2)
+
+            # t in [0,1]
+            t = u - i0.to(dtype=u.dtype)
+            t = torch.clamp(t, 0.0, 1.0)
+
+            e0 = energy[i0]
+            e1 = energy[i0 + 1]
+            energy_flat[in_range] = (1.0 - t) * e0 + t * e1
+
+        # Below grid minimum: clamp to first table value
+        below_min = r_eff < r_min
+        if below_min.any():
+            energy_flat[below_min] = energy[0]
+
+        # Above r_max: (shouldn't happen due to in_range mask, but safe) clamp to last value
+        above_max = r_eff > r_max
+        if above_max.any():
+            energy_flat[above_max] = energy[-1]
+
+        return energy_flat.reshape(orig_shape)
+
+    def forward(self, R: torch.Tensor, seq: torch.Tensor,
+                lengths: torch.Tensor | None = None) -> torch.Tensor:
+        """Compute repulsion energy (unscaled - outer gate will multiply).
 
         Args:
-            seq_i: (B, L, K) indices for i.
-            seq_j: (B, L, K) indices for j.
+            R: (B, L, 3) coordinates
+            seq: (B, L) amino acid indices (unused)
+            lengths: (B,) actual chain lengths. If provided, padding atoms
+                     are excluded from neighbour lists.
 
         Returns:
-            (B, L, K) pair radii.
+            (B,) raw energy per batch element (before outer gate multiplication).
+            If normalize_by_length=True, energy is per-residue (divided by L).
         """
-        rho_i = self.rho(seq_i)
-        rho_j = self.rho(seq_j)
-        return rho_i + rho_j
+        _ = seq  # explicitly unused
 
-    def forward(self, R: torch.Tensor, seq: torch.Tensor) -> torch.Tensor:
-        """Compute repulsion energy.
+        if R.dim() != 3 or R.size(-1) != 3:
+            raise ValueError(f"R must have shape (B, L, 3), got {tuple(R.shape)}")
 
-        Args:
-            R: (B, L, 3) coordinates.
-            seq: (B, L) amino acid indices.
+        B, L, _ = R.shape
 
-        Returns:
-            (B,) Energy per batch element.
+        # Move padding atoms far away BEFORE computing neighbors.
+        # Without this, real atoms near origin pick padding atoms at degenerate
+        # positions (from NeRF on garbage ICs) as nearest neighbors → 0Å distances.
+        if lengths is not None:
+            valid_atom = torch.arange(L, device=R.device).unsqueeze(0) < lengths.unsqueeze(1)  # (B, L)
+            R = R.masked_fill(~valid_atom.unsqueeze(2), 1e6)
+
+        # Nonbonded pairs: include only |i-j| > exclude
+        r, _ = topk_nonbonded_pairs(R, k=self.K, exclude=self.exclude)  # (B, L, K)
+
+        # Belt-and-suspenders: also mask distances FROM padding atoms
+        if lengths is not None:
+            r = r.masked_fill(~valid_atom.unsqueeze(2), self.r_cut + 1.0)
+
+        # Clamp distances to physical minimum (1.0Å for Cα-Cα).
+        # Sub-1Å distances arise from extreme IC perturbations (σ=2.0 rad decoys)
+        # and produce unreliable gradients. The repulsion wall is already maximal
+        # at 1.0Å so clamping here doesn't change physics, just stabilises numerics.
+        r = torch.clamp(r, min=1.0)
+
+        # Look up energy for each distance (>= 0 typically)
+        E_pair = self._lookup_energy_differentiable(r)  # (B, L, K)
+
+        # Apply smooth switching function (typically ~1 at short range, to 0 near cutoff)
+        sw = smooth_switch(r, self.r_on, self.r_cut)    # (B, L, K)
+
+        # Sum over all pairs and scale by internal trainable lambda_rep
+        E = self.lambda_rep * (E_pair * sw).sum(dim=(1, 2))  # (B,)
+
+        # Option R1: per-residue normalization
+        if self.normalize_by_length:
+            if lengths is not None:
+                denom = lengths.float().clamp(min=1.0)
+            else:
+                denom = float(max(L, 1))
+            E = E / denom
+
+        return E
+
+    def energy_from_distances(self, r: torch.Tensor) -> torch.Tensor:
+        """Compute repulsion energy from distances directly (testing/debug).
+
+        If r is:
+          - scalar: returns scalar
+          - (...): returns same shape (pairwise energies after switching)
         """
-        r, j = topk_nonbonded_pairs(R, K=self.K, exclude=self.exclude)
-        B, L, K = j.shape
+        if r.dim() == 0:
+            r = r.unsqueeze(0)
 
-        # Get sequences for i and j
-        seq_i = seq.unsqueeze(-1).expand(-1, -1, K)
-        seq_j = torch.gather(seq.unsqueeze(-1).expand(-1, -1, K), 1, j)
-
-        r0 = self.pair_r0(seq_i, seq_j)
+        E = self._lookup_energy_differentiable(r)
         sw = smooth_switch(r, self.r_on, self.r_cut)
-        rep = self.wall_scale * F.softplus((r0 - r) / (self.delta + 1e-12))
-
-        return (rep * sw).sum(dim=(1, 2))
+        return E * sw
 
 
-# Alias for default
-RepulsionEnergy = RepulsionEnergyLearnedRadius
+__all__ = ["RepulsionEnergy"]

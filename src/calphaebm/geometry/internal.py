@@ -1,12 +1,16 @@
 """Differentiable internal coordinates from Cartesian Cα coordinates.
 
+Cα pseudo-angles follow Oldfield & Hubbard (Proteins 1994; PMID 8208725):
+  θ (bond angle):    angle at Cα_i formed by Cα_{i-1}—Cα_i—Cα_{i+1}
+  φ (pseudo-torsion): dihedral of Cα_{i-1}—Cα_i—Cα_{i+1}—Cα_{i+2}
+
+Standard convention: α-helix θ≈91° φ≈+50°, β-sheet θ≈124° φ≈-170°.
+
 R is expected to be [B, L, 3] or [L, 3].
 Outputs are batched if input is batched.
 """
-
 import numpy as np
 import torch
-
 from calphaebm.geometry.dihedral import dihedral
 from calphaebm.utils.math import safe_norm
 
@@ -22,10 +26,8 @@ def _ensure_batch(R):
 
 def bond_lengths(R: torch.Tensor) -> torch.Tensor:
     """Compute bond lengths ℓ_i = ||r_{i+1} - r_i||.
-
     Args:
         R: (B, L, 3) or (L, 3) coordinates.
-
     Returns:
         (B, L-1) bond lengths in Å.
     """
@@ -39,50 +41,71 @@ def bond_angles(R: torch.Tensor) -> torch.Tensor:
 
     Args:
         R: (B, L, 3) or (L, 3) coordinates.
-
     Returns:
         (B, L-2) bond angles in radians.
+
+    FIX: The original implementation used:
+        cos_theta = clamp(dot / (|u||v|), -1, 1)
+        theta = acos(cos_theta)
+
+    This is numerically unstable for second-order gradients (DSM uses
+    create_graph=True). Two problems:
+      1. torch.clamp is non-differentiable at the boundary values ±1.
+         The Hessian is undefined there, producing NaN in second-order backward.
+      2. d/dx acos(x) = -1/sqrt(1-x²), which diverges as x → ±1.
+         Even values slightly inside the boundary produce huge second derivatives.
+
+    Fix: Use atan2(|u×v|, u·v) instead of acos(clamp(cos)).
+    atan2 has well-behaved first AND second derivatives everywhere, including
+    near θ=0 and θ=π. The cross-product magnitude gives sin(θ) and the dot
+    product gives cos(θ), so atan2 recovers θ without ever touching acos.
+
+    SECOND FIX: Use safe_norm (sqrt(||x||² + eps)) instead of torch.norm
+    for the cross product magnitude. torch.norm has undefined gradient at
+    exactly zero (d/dx ||x|| = x/||x|| → 0/0 when ||x||=0), which occurs
+    whenever three consecutive Cα atoms are collinear. DSM's Gaussian noise
+    makes this happen regularly, producing NaN gradients that poison the
+    entire batch. safe_norm adds a small epsilon under the sqrt to keep the
+    gradient finite everywhere.
     """
     Rb = _ensure_batch(R)
 
     # Vectors from central atom to neighbors
     u = Rb[:, :-2, :] - Rb[:, 1:-1, :]  # r_{i-1} - r_i
-    v = Rb[:, 2:, :] - Rb[:, 1:-1, :]   # r_{i+1} - r_i
+    v = Rb[:, 2:, :]  - Rb[:, 1:-1, :]  # r_{i+1} - r_i
 
-    # Compute cosine of angle
-    u_norm = safe_norm(u, dim=-1)
-    v_norm = safe_norm(v, dim=-1)
-    cos_theta = torch.sum(u * v, dim=-1) / (u_norm * v_norm + 1e-12)
-    cos_theta = torch.clamp(cos_theta, -1.0, 1.0)
+    # dot product: cos(θ) * |u| * |v|
+    dot = torch.sum(u * v, dim=-1)
 
-    return torch.acos(cos_theta)
+    # cross product magnitude: sin(θ) * |u| * |v|  (always >= 0)
+    cross = torch.linalg.cross(u, v, dim=-1)          # (B, L-2, 3)
+    cross_norm = safe_norm(cross, dim=-1)              # FIX: was torch.norm
+
+    # atan2(sin, cos) — well-behaved second derivatives everywhere
+    theta = torch.atan2(cross_norm, dot)
+
+    return theta
 
 
 def torsions(R: torch.Tensor) -> torch.Tensor:
     """Compute torsion angles φ_i for quadruplets (i-1,i,i+1,i+2).
-
     Args:
         R: (B, L, 3) or (L, 3) coordinates.
-
     Returns:
         (B, L-3) torsion angles in radians.
     """
     Rb = _ensure_batch(R)
-
     p0 = Rb[:, :-3, :]
     p1 = Rb[:, 1:-2, :]
     p2 = Rb[:, 2:-1, :]
     p3 = Rb[:, 3:, :]
-
     return dihedral(p0, p1, p2, p3)
 
 
 def all_internal(R: torch.Tensor) -> dict:
     """Compute all internal coordinates at once.
-
     Args:
         R: (B, L, 3) or (L, 3) coordinates.
-
     Returns:
         Dictionary with keys:
             - 'l': bond lengths
@@ -99,11 +122,9 @@ def all_internal(R: torch.Tensor) -> dict:
 
 def check_geometry(R, max_jump: float = 4.5) -> dict:
     """Check geometric sanity of a structure.
-
     Args:
         R: (L, 3) coordinates (numpy or torch tensor).
         max_jump: Maximum allowed Cα-Cα distance.
-
     Returns:
         Dictionary with validation results.
     """
@@ -131,7 +152,7 @@ def check_geometry(R, max_jump: float = 4.5) -> dict:
     D = pairwise_distances(R.unsqueeze(0))[0]
     # Exclude bonded pairs
     for i in range(L):
-        D[i, max(0, i-2):min(L, i+3)] = float("inf")
+        D[i, max(0, i - 2):min(L, i + 3)] = float("inf")
     min_nonbonded = D.min().item()
 
     return {

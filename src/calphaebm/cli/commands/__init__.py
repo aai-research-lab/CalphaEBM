@@ -1,3 +1,7 @@
-# src/calphaebm/cli/commands/__init__.py
+"""CLI commands package."""
 
-"""CLI command modules."""
+from . import analyze
+from . import calibrate
+from . import train
+
+__all__ = ["analyze", "calibrate", "train"]

@@ -154,7 +154,7 @@ def load_trajectory_npy(path: Union[str, Path]) -> np.ndarray:
 
 def load_trajectory_pt(path: Union[str, Path]) -> torch.Tensor:
     """Load trajectory from PyTorch file."""
-    return torch.load(path)
+    return torch.load(path, weights_only=False)
 
 
 def load_trajectory_mdtraj(
