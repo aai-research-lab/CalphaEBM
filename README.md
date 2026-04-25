@@ -40,13 +40,24 @@ The model maintains native contacts (Q > 0.96) and native compactness (Rg within
 ```bash
 # Full training (10 rounds, SLURM)
 sbatch scripts/training/run9_full.sh
+```
 
-# Single-protein model test
+
+
+## Single-protein Stability Test
+```bash
 python scripts/model_test.py \
     --model checkpoints/run9/run9/full-stage/full_round010/step005000.pt \
-    --pdb-id 1yrf --n-steps 100000 --beta 100
+    --pdb-id 2jof \
+    --start-mode native \
+    --n-trials 1 \
+    --minimize --step-size 5e-5 --n-steps 1000000 \
+    --equil-beta 100 \
+    --log-every 20000
+```
 
-# TREMD folding test
+## TREMD folding test
+```bash
 python scripts/simu/tremd_test.py \
     --model checkpoints/run9/run9/full-stage/full_round008/step005000.pt \
     --pdb-id 1yrf --start-mode extended --minimize \
