@@ -35,7 +35,7 @@ The model maintains native contacts (Q > 0.96) and native compactness (Rg within
 
 - **1YRF** (Villin HP35, L=35, all-α): Q=1.000 for 1M MALA steps, RMSD=2.7 Å
 
-## Training
+## Model Training
 
 ```bash
 # Full training (10 rounds, SLURM)
@@ -44,7 +44,7 @@ sbatch scripts/training/run9_full.sh
 
 
 
-## Single-protein Stability Test
+## Native Stability Test
 ```bash
 python scripts/model_test.py \
     --model checkpoints/run9/run9/full-stage/full_round010/step005000.pt \
@@ -56,7 +56,7 @@ python scripts/model_test.py \
     --log-every 20000
 ```
 
-## TREMD folding test
+## TREMD Folding Test
 ```bash
 python scripts/simu/tremd_test.py \
     --model checkpoints/run9/run9/full-stage/full_round008/step005000.pt \
