@@ -1,6 +1,6 @@
 # CalphaEBM: Protein Cα Energy-Based Model
 
-A physics-based, machine-learned energy function for protein Cα coordinates that achieves native basin stability across diverse protein folds.
+A physics-based, machine-learned Protein Cα Energy function that achieves native basin stability across diverse protein folds.
 
 ## Model
 
